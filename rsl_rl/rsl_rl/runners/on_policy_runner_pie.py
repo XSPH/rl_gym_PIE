@@ -1,9 +1,12 @@
 """PIE runner built on the v1.0.2 OnPolicyRunner construction contract."""
 from dataclasses import asdict, dataclass, field, is_dataclass
 from pathlib import Path
+from collections import deque
 import json
 import random
+import time
 import torch
+from torch.utils.tensorboard import SummaryWriter
 from .on_policy_runner import OnPolicyRunner
 from rsl_rl.modules.actor_critic_pie import ModelConfig, PIEActorCritic
 from rsl_rl.algorithms.ppo_pie import PPOConfig
@@ -76,30 +79,112 @@ class PIEOnPolicyRunner(OnPolicyRunner):
         output = Path(self.log_dir) if self.log_dir is not None else None
         if output is not None:
             output.mkdir(parents=True, exist_ok=True)
+            if self.writer is None:
+                self.writer = SummaryWriter(log_dir=str(output), flush_secs=10)
         last = {}
+        target_iteration = self.current_learning_iteration + iterations
         for _ in range(iterations):
+            start = time.perf_counter()
             batch, obs, hidden, reset_mask = self.alg.collect(
                 self.env, obs, hidden, reset_mask, self.num_steps_per_env)
+            collected = time.perf_counter()
             last = self.alg.update(batch)
+            hidden, reset_mask = self.alg.refresh_hidden(batch)
+            self._observation, self._hidden, self._reset_mask = obs, hidden, reset_mask
             self.current_learning_iteration += 1
             transitions = len(batch["frames"]) * hidden.shape[0]
             self.tot_timesteps += transitions
+            self._update_episode_statistics(batch["frames"])
             last.update(iteration=self.current_learning_iteration,
                         mean_reward=float(torch.stack([f["rewards"] for f in batch["frames"]]).mean()),
                         transitions=transitions)
+            last.update(learning_rate=self.alg.optimizer.param_groups[0]["lr"],
+                        mean_action_noise_std=float(self.alg.actor_critic.std.detach().mean()))
+            stop = time.perf_counter()
+            iteration_time = stop - start
+            self.tot_time += iteration_time
+            last.update(collection_time=collected-start, learning_time=stop-collected,
+                        iteration_time=iteration_time, total_time=self.tot_time,
+                        total_timesteps=self.tot_timesteps, fps=transitions/max(iteration_time, 1e-9))
+            if self._reward_buffer:
+                last.update(mean_episode_reward=sum(self._reward_buffer)/len(self._reward_buffer),
+                            mean_episode_length=sum(self._length_buffer)/len(self._length_buffer))
             if output is not None:
                 with (output / "metrics.jsonl").open("a", encoding="utf-8") as stream:
                     stream.write(json.dumps(last, allow_nan=False) + "\n")
-            print(json.dumps(last, allow_nan=False), flush=True)
-            hidden, reset_mask = self.alg.refresh_hidden(batch)
-            self._observation, self._hidden, self._reset_mask = obs, hidden, reset_mask
+            self._log_pie_iteration(last, target_iteration)
             if output is not None and self.current_learning_iteration % self.save_interval == 0:
                 self.save(output / "model_{}.pt".format(self.current_learning_iteration))
         if output is not None:
             checkpoint = output / "checkpoint.pt"
             self.save(checkpoint)
             last = {"checkpoint": str(checkpoint), **last}
+            self.writer.flush()
         return last
+
+    def _update_episode_statistics(self, frames):
+        # Like the native RSL runner, count only steps actually collected;
+        # randomized timeout counters do not inflate logged episode lengths.
+        if not hasattr(self, "_episode_reward_sum"):
+            self._episode_reward_sum = torch.zeros_like(frames[0]["rewards"])
+            self._episode_step_count = torch.zeros_like(frames[0]["rewards"], dtype=torch.long)
+            self._reward_buffer, self._length_buffer = deque(maxlen=100), deque(maxlen=100)
+        returns, lengths = [], []
+        for frame in frames:
+            self._episode_reward_sum += frame["rewards"]
+            self._episode_step_count += 1
+            done = frame["terminated"] | frame["truncated"]
+            if done.any():
+                returns.append(self._episode_reward_sum[done].clone())
+                lengths.append(self._episode_step_count[done].clone())
+                self._episode_reward_sum[done] = 0
+                self._episode_step_count[done] = 0
+        if returns:
+            self._reward_buffer.extend(torch.cat(returns).cpu().tolist())
+            self._length_buffer.extend(torch.cat(lengths).cpu().tolist())
+
+    def _log_pie_iteration(self, metrics, target_iteration):
+        """Native RSL-style console/TensorBoard with PIE auxiliary losses."""
+        tags = {
+            "Loss/value_function": "value", "Loss/surrogate": "policy",
+            "Loss/total": "loss", "Loss/learning_rate": "learning_rate",
+            "Policy/mean_noise_std": "mean_action_noise_std",
+            "Perf/total_fps": "fps", "Perf/collection_time": "collection_time",
+            "Perf/learning_time": "learning_time", "Train/mean_step_reward": "mean_reward",
+            "Train/mean_reward": "mean_episode_reward",
+            "Train/mean_episode_length": "mean_episode_length",
+            "PIE/velocity_loss": "velocity", "PIE/foot_clearance_loss": "foot_clearance",
+            "PIE/heightmap_loss": "heightmap", "PIE/successor_loss": "successor",
+            "PIE/vae_kl_loss": "kl", "PIE/gradient_norm_before_clipping": "grad_norm",
+        }
+        if self.writer is not None:
+            for tag, key in tags.items():
+                if key in metrics:
+                    self.writer.add_scalar(tag, metrics[key], metrics["iteration"])
+        lines = ["#"*80, " Learning iteration {}/{} ".format(
+            metrics["iteration"], target_iteration).center(80), "",
+            "{:>35} {:.0f} steps/s (collection: {:.3f}s, learning: {:.3f}s)".format(
+                "Computation:", metrics["fps"], metrics["collection_time"], metrics["learning_time"])]
+        labels = [("Value function loss:", "value"), ("Surrogate loss:", "policy"),
+                  ("Mean action noise std:", "mean_action_noise_std"),
+                  ("Mean reward:", "mean_episode_reward"),
+                  ("Mean episode length:", "mean_episode_length"),
+                  ("Mean step reward:", "mean_reward"),
+                  ("Velocity estimation loss:", "velocity"),
+                  ("Foot clearance loss:", "foot_clearance"),
+                  ("Height map reconstruction loss:", "heightmap"),
+                  ("Successor reconstruction loss:", "successor"),
+                  ("VAE KL loss:", "kl"), ("Total loss:", "loss"),
+                  ("Gradient norm before clipping:", "grad_norm")]
+        lines.extend("{:>35} {:.4f}".format(label, metrics[key])
+                     for label, key in labels if key in metrics)
+        remaining = target_iteration - metrics["iteration"]
+        lines.extend(["-"*80,
+                      "{:>35} {}".format("Total timesteps:", metrics["total_timesteps"]),
+                      "{:>35} {:.2f}s".format("Iteration time:", metrics["iteration_time"]),
+                      "{:>35} {:.2f}s".format("Total time:", metrics["total_time"]),
+                      "{:>35} {:.1f}s".format("ETA:", self.tot_time / metrics["iteration"] * remaining)])
+        print("\n".join(lines), flush=True)
 
     def save(self, path, infos=None):
         environment_cfg = getattr(self.env, "config", None)

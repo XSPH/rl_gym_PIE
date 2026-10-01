@@ -12,12 +12,15 @@ from rsl_rl.runners.on_policy_runner_pie import PIERunnerCfg, PIEOnPolicyRunner
 class _Algorithm:
     def __init__(self):
         self.actor_critic = torch.nn.Linear(1, 1)
+        self.actor_critic.std = torch.ones(1)
         torch.nn.init.zeros_(self.actor_critic.weight)
         torch.nn.init.zeros_(self.actor_critic.bias)
         self.optimizer = torch.optim.Adam(self.actor_critic.parameters(), lr=0.1)
 
     def collect(self, env, obs, hidden, reset_mask, steps):
-        batch = {"frames": [{"rewards": torch.ones(1)} for _ in range(steps)]}
+        batch = {"frames": [{"rewards": torch.ones(1),
+                             "terminated": torch.zeros(1, dtype=torch.bool),
+                             "truncated": torch.zeros(1, dtype=torch.bool)} for _ in range(steps)]}
         return batch, obs, hidden, reset_mask
 
     def update(self, batch):
@@ -41,6 +44,8 @@ def _runner(output):
     runner.num_steps_per_env = 1
     runner.current_learning_iteration = 499
     runner.tot_timesteps = 0
+    runner.tot_time = 0
+    runner.writer = None
     runner._observation = {}
     runner._hidden = torch.zeros(1, 1)
     runner._reset_mask = torch.ones(1, dtype=torch.bool)
@@ -86,3 +91,20 @@ def test_failed_save_preserves_previous_checkpoint(tmp_path, monkeypatch):
         runner.save(checkpoint)
     assert checkpoint.read_bytes() == previous
     assert not (tmp_path / "checkpoint.pt.tmp").exists()
+
+
+def test_episode_statistics_cross_rollouts_and_reset_only_finished_envs(tmp_path):
+    runner = _runner(tmp_path)
+    def frame(rewards, terminated, truncated):
+        return {"rewards": torch.tensor(rewards),
+                "terminated": torch.tensor(terminated), "truncated": torch.tensor(truncated)}
+    runner._update_episode_statistics([
+        frame([1.0, 2.0], [False, True], [False, False]),
+        frame([3.0, 4.0], [False, False], [True, False]),
+    ])
+    assert list(runner._reward_buffer) == [2.0, 4.0]
+    assert list(runner._length_buffer) == [1, 2]
+    runner._update_episode_statistics([frame([5.0, 6.0], [False, True], [False, False])])
+    assert list(runner._reward_buffer) == [2.0, 4.0, 10.0]
+    assert list(runner._length_buffer) == [1, 2, 2]
+    assert runner._episode_reward_sum.tolist() == [5.0, 0.0]

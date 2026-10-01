@@ -44,9 +44,9 @@
     },
     {
       "path": "README_PIE.md",
-      "bytes": 5822,
+      "bytes": 6806,
       "mode": "100644",
-      "sha256": "955a1ea39e91ccfe6ef132d0d84c27eee5f2b7b2f09dd77cc7143b880b0e3a74"
+      "sha256": "1791fcd144b3daa00f43d86326b3dafbb31aa7300bc365c05cbc92723a2bdf54"
     },
     {
       "path": "README_zh.md",
@@ -362,9 +362,9 @@
     },
     {
       "path": "legged_gym/envs/pie/lite3_config.py",
-      "bytes": 2322,
+      "bytes": 2652,
       "mode": "100644",
-      "sha256": "4740c7fceb393466356c9ecf7617bda6af3008919a73ae891b39cf921739e243"
+      "sha256": "f4d2987972fd9fef612027607db2a10508db03660427b87370f82af23206ec9d"
     },
     {
       "path": "legged_gym/pie/__init__.py",
@@ -1856,9 +1856,9 @@
     },
     {
       "path": "rsl_rl/PIE_EXTENSION.md",
-      "bytes": 3655,
+      "bytes": 4175,
       "mode": "100644",
-      "sha256": "99c218dd43e1d464bfbb0c6eabdb761cf29ab9b523ce9c559288edd84ce9f6e1"
+      "sha256": "3df522c7eaa04df91678f9e26d0274d4484cbe13766609c8f471ad5ec1d3b899"
     },
     {
       "path": "rsl_rl/README.md",
@@ -1928,9 +1928,9 @@
     },
     {
       "path": "rsl_rl/rsl_rl/modules/actor_critic_pie.py",
-      "bytes": 12857,
+      "bytes": 13637,
       "mode": "100644",
-      "sha256": "af82e89367b21ff8cf079127ca2a63f047550f2abd5f55921cf10a769f6e6a49"
+      "sha256": "b42c8b94b34be0df3109fb698ff4d64e1e4796b55fce9f431cb9e884b506f1a0"
     },
     {
       "path": "rsl_rl/rsl_rl/modules/actor_critic_recurrent.py",
@@ -1952,9 +1952,9 @@
     },
     {
       "path": "rsl_rl/rsl_rl/runners/on_policy_runner_pie.py",
-      "bytes": 10298,
+      "bytes": 15546,
       "mode": "100644",
-      "sha256": "66d3e11f216354d18c83170ae9fd357e717c5bd5e49abe1ed39a43359bb08551"
+      "sha256": "79104cfca7cca7819b11b1cfd29cab74118c90676044736278b51c05dd625e83"
     },
     {
       "path": "rsl_rl/rsl_rl/storage/__init__.py",
@@ -2006,9 +2006,9 @@
     },
     {
       "path": "tests/test_pie_checkpointing.py",
-      "bytes": 3538,
+      "bytes": 4620,
       "mode": "100644",
-      "sha256": "a3fce2488a53b6c78e5eb15df8de07655f47976cdd934cd47d3446001c9519cb"
+      "sha256": "bcba3344de2484c4b26f0814adbf38adb522504989b7d07f391e3d2d15d6c654"
     },
     {
       "path": "tests/test_terrain_and_assets.py",

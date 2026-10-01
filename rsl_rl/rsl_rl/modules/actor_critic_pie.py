@@ -143,6 +143,21 @@ class PIEActorCritic(ActorCritic):
         self.logvar_head = nn.Linear(cfg.gru_dim, cfg.latent_dim)
         self.successor_decoder = mlp(estimate_dim, cfg.successor_hidden_dims, cfg.proprio_dim)
         self.height_decoder = mlp(cfg.map_latent_dim, cfg.height_decoder_hidden_dims, cfg.heightmap_dim)
+        for label, module in (
+            ("Proprio Encoder MLP", self.proprio_encoder),
+            ("Depth Encoder CNN", self.depth_encoder),
+            ("Fusion Transformer Encoder", self.transformer),
+            ("Temporal Fusion GRU", self.gru),
+            ("Velocity Head", self.velocity_head),
+            ("Foot Clearance Head", self.clearance_head),
+            ("Height Map Latent Head", self.map_head),
+            ("VAE Mean Head", self.mu_head),
+            ("VAE Log Variance Head", self.logvar_head),
+            ("Proprio Decoder MLP", self.successor_decoder),
+            ("Height Map Decoder MLP", self.height_decoder),
+        ):
+            print("{}: {}".format(label, module))
+        print("Positional Embedding: {}".format(tuple(self.position.shape)))
 
     @property
     def log_std(self):

@@ -31,6 +31,10 @@ python -s legged_gym/scripts/play.py --task lite3_pie --headless --num_envs 2 --
 
 默认 4096 环境、8 步 rollout、15000 iterations，每完成 500 轮保存 `model_500.pt`、`model_1000.pt` 等，训练结束另存 `checkpoint.pt`。可以通过 `--num_envs`、`--max_iterations`、`--rollout_steps`、`--save_interval` 覆盖。以上最小验证命令显式使用 2 环境、1 轮和 16 步，使 10 Hz / 100 ms 延迟的视觉帧真正进入 rollout。检查脚本不训练。`runs/minimal` 保存的是此前 2.2.4 实现的 checkpoint、指标和日志，不能作为本次 v1.0.2 修改的运行证据；再次在同目录训练会覆盖 checkpoint。
 
+启动时打印 Actor、Critic、本体 MLP、深度 CNN、Transformer、GRU、各估计头及解码器。训练终端采用原版 RSL-RL 的分栏日志格式，包含速度、采集/更新时间、噪声标准差、回合奖励/长度及 PIE 辅助损失；同时保留 `metrics.jsonl` 并写入 TensorBoard。`Mean reward` / `Train/mean_reward` 是最近 100 个完成回合的累计奖励；`Mean step reward` / `Train/mean_step_reward` 和 JSON 的 `mean_reward` 是 rollout 中的单步平均奖励，不能直接比较。`VAE KL loss` 是潜变量正则项。回合统计跨 rollout 累计，在终止或超时后分别清零；随机初始超时计数不计入已采集的回合长度。
+
+仅 Lite3 PIE 的 PhysX 配置预留 `max_gpu_contact_pairs=2**25`、`default_buffer_size_multiplier=10.0`，用于 4096 环境共享地形时的 GPU 碰撞缓冲区；其他机器人任务继续使用原配置。该设置增加物理缓冲区显存占用，与网络超参数无关。
+
 2026-10-01 完成静态代码审查并修复原生配置/时间步长同步、动作延迟上限、非有限奖励和异常清理等问题。此次未执行上述运行命令。[完整审查记录](docs/code_review_2026-10-01.md)。`Lite3PIE` 在创建 actor 前将 `cfg.pie` 的最终 URDF、机器人控制、摩擦/质量随机化和物理步长写入父类使用的配置。
 
 环境为 Python 3.8、Torch 2.4.1、Isaac Gym Preview 4、Warp 1.6.2、项目内 rsl_rl v1.0.2。新增依赖只装在新环境。`environment.pie.yml` 是配方，SDK 需从 NVIDIA 单独安装。当前 SDK 为 `/home/asuka/isaacgym/python`。rsl_rl 必须先于父项目 editable 安装。Isaac Gym native binding 必须先于 Torch 导入。

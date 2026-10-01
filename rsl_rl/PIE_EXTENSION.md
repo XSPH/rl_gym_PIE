@@ -48,6 +48,13 @@ checkpoints at completed iterations 500, 1000, and so on. It also writes
 checkpoint.pt at the end of each learn() call. Saves use a temporary file and
 atomic replacement. Periodic checkpoints include weights and optimizer state;
 optimizer resume remains unsupported.
+The PIE runner prints native RSL-style iteration tables and writes TensorBoard
+events alongside metrics.jsonl. Train/mean_reward is a rolling mean of the last
+100 completed episode returns; Train/mean_step_reward is the per-transition
+rollout reward. Episode lengths count collected steps across rollout boundaries,
+independent of randomized timeout counters. PIE VAE/estimation losses have
+separate tags. All encoder, recurrent, head and decoder modules are printed
+after the native Actor/Critic initialization output.
 Old wrapped actor/critic/log_std weight keys are converted on loading; optimizer
 resume is unsupported. The distribution is a native attribute, so sequence
 evaluation calls `policy_distribution()`.
