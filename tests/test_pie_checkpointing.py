@@ -51,6 +51,7 @@ def _runner(output):
     runner._observation = {}
     runner._hidden = torch.zeros(1, 1)
     runner._reset_mask = torch.ones(1, dtype=torch.bool)
+    runner.env.levels = torch.tensor([0, 1, 1, 2])
     return runner
 
 
@@ -76,6 +77,8 @@ def test_checkpoint_records_boundary_weights_and_cumulative_iteration(tmp_path):
     assert not list(tmp_path.glob("*.tmp"))
     metrics = [json.loads(line) for line in (tmp_path / "metrics.jsonl").read_text().splitlines()]
     assert [item["iteration"] for item in metrics] == [500, 501, 502]
+    assert all(item["terrain_level"] == 1.0 for item in metrics)
+    assert all(item["terrain_level_min"] == 0 and item["terrain_level_max"] == 2 for item in metrics)
 
 
 def test_failed_save_preserves_previous_checkpoint(tmp_path, monkeypatch):
@@ -150,7 +153,8 @@ def test_original_logger_prints_and_records_each_reward_without_double_counting(
                "collection_time": 0.3, "learning_time": 0.1, "mean_reward": 1.0,
                "velocity": 0.01, "foot_clearance": 0.02, "heightmap": 0.03,
                "successor": 0.04, "kl": 0.05, "grad_norm": 2.0,
-               "learning_rate": 0.1, "transitions": 1}
+               "learning_rate": 0.1, "transitions": 1,
+               "terrain_level": 1.0, "terrain_level_min": 0, "terrain_level_max": 2}
     runner._log_pie_iteration(metrics, 15000, infos)
     text = capsys.readouterr().out
     assert "Learning iteration 0/15000" in text
@@ -160,7 +164,8 @@ def test_original_logger_prints_and_records_each_reward_without_double_counting(
     for label in ("Total loss:", "Velocity estimation loss:", "Foot clearance loss:",
                   "Height map reconstruction loss:", "Successor reconstruction loss:",
                   "VAE KL loss:", "Gradient norm before clipping:", "Learning rate:",
-                  "Mean step reward:", "Transitions this iteration:"):
+                  "Mean step reward:", "Transitions this iteration:",
+                  "Mean terrain level:", "Min terrain level:", "Max terrain level:"):
         assert label in text
     assert text.index("Mean episode rew_collision:") < text.index("Velocity estimation loss:")
     assert text.index("Velocity estimation loss:") < text.index("Total timesteps:")
@@ -175,3 +180,6 @@ def test_original_logger_prints_and_records_each_reward_without_double_counting(
     assert events.Scalars("Loss/value_function")[0].step == 0
     assert events.Scalars("PIE/velocity_loss")[0].value == pytest.approx(0.01)
     assert events.Scalars("PIE/vae_kl_loss")[0].value == pytest.approx(0.05)
+    assert events.Scalars("Episode/terrain_level")[0].value == 1.0
+    assert events.Scalars("Terrain/min_level")[0].value == 0.0
+    assert events.Scalars("Terrain/max_level")[0].value == 2.0

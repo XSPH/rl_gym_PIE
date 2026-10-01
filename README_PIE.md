@@ -48,7 +48,9 @@ python -s legged_gym/scripts/play.py --task lite3_pie --headless --num_envs 2 --
 | 动作一阶变化平方和 | `rew_action_rate` | -0.01 |
 | 动作二阶变化平方和 | `rew_smoothness` | -0.01 |
 
-仅 Lite3 PIE 的 PhysX 配置预留 `max_gpu_contact_pairs=2**25`、`default_buffer_size_multiplier=10.0`，用于 4096 环境共享地形时的 GPU 碰撞缓冲区；其他机器人任务继续使用原配置。该设置增加物理缓冲区显存占用，与网络超参数无关。
+PhysX 直接继承原版 `LeggedRobotCfg.sim.physx`，使用 `max_gpu_contact_pairs=2**23`、`default_buffer_size_multiplier=5`。已撤销此前额外增大的缓冲区配置。后续如需变更论文未指定的配置，先与用户确认。
+
+终端每轮显示 `Mean terrain level`、`Min terrain level`、`Max terrain level`，统计 rollout 完成并执行课程重置后的所有并行环境。JSON 对应字段为 `terrain_level`、`terrain_level_min`、`terrain_level_max`；TensorBoard 对应 `Episode/terrain_level`、`Terrain/min_level`、`Terrain/max_level`。等级从 0 到 9，均值出现小数是因为并行环境等级各不相同。
 
 2026-10-01 完成静态代码审查并修复原生配置/时间步长同步、动作延迟上限、非有限奖励和异常清理等问题。此次未执行上述运行命令。[完整审查记录](docs/code_review_2026-10-01.md)。`Lite3PIE` 在创建 actor 前将 `cfg.pie` 的最终 URDF、机器人控制、摩擦/质量随机化和物理步长写入父类使用的配置。
 

@@ -100,6 +100,12 @@ class PIEOnPolicyRunner(OnPolicyRunner):
                         transitions=transitions)
             last.update(learning_rate=self.alg.optimizer.param_groups[0]["lr"],
                         mean_action_noise_std=float(self.alg.actor_critic.std.detach().mean()))
+            levels = getattr(self.env, "levels", None)
+            if levels is not None:
+                # Report the live curriculum state after rollout resets.
+                last.update(terrain_level=float(levels.float().mean()),
+                            terrain_level_min=int(levels.min()),
+                            terrain_level_max=int(levels.max()))
             stop = time.perf_counter()
             iteration_time = stop - start
             last.update(collection_time=collected-start, learning_time=stop-collected,
@@ -188,12 +194,16 @@ class PIEOnPolicyRunner(OnPolicyRunner):
             ("Gradient norm before clipping:", "grad_norm"),
             ("Learning rate:", "learning_rate"),
             ("Mean step reward:", "mean_reward"),
+            ("Mean terrain level:", "terrain_level"),
         ]
         extra_log_string = "".join(
             "{:>35} {:.6f}\n".format(label, metrics[key])
             for label, key in extra_fields if key in metrics)
-        if "transitions" in metrics:
-            extra_log_string += "{:>35} {}\n".format("Transitions this iteration:", metrics["transitions"])
+        for label, key in (("Min terrain level:", "terrain_level_min"),
+                           ("Max terrain level:", "terrain_level_max"),
+                           ("Transitions this iteration:", "transitions")):
+            if key in metrics:
+                extra_log_string += "{:>35} {}\n".format(label, metrics[key])
         OnPolicyRunner.log(logger, {
             "it": metrics["iteration"]-1,
             "num_learning_iterations": target_iteration,
@@ -211,6 +221,8 @@ class PIEOnPolicyRunner(OnPolicyRunner):
             "PIE/velocity_loss": "velocity", "PIE/foot_clearance_loss": "foot_clearance",
             "PIE/heightmap_loss": "heightmap", "PIE/successor_loss": "successor",
             "PIE/vae_kl_loss": "kl", "PIE/gradient_norm_before_clipping": "grad_norm",
+            "Episode/terrain_level": "terrain_level",
+            "Terrain/min_level": "terrain_level_min", "Terrain/max_level": "terrain_level_max",
         }
         for tag, key in tags.items():
             if key in metrics:

@@ -3,13 +3,6 @@ from legged_gym.pie.config import EnvConfig
 
 
 class Lite3PIECfg(LeggedRobotCfg):
-    class sim(LeggedRobotCfg.sim):
-        class physx(LeggedRobotCfg.sim.physx):
-            # Shared terrain lanes concentrate many collision-filtered actors.
-            # Reserve additional broad-phase/contact buffers for 4096 envs.
-            max_gpu_contact_pairs = 2**25
-            default_buffer_size_multiplier = 10.0
-
     def __init__(self):
         super().__init__()
         self.pie = EnvConfig()
