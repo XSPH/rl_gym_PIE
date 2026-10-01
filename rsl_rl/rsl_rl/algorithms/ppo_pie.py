@@ -96,6 +96,8 @@ class PIEPPO(PPO):
                 "obs": stored, "targets": targets, "actions": actions.detach().clone(),
                 "old_logp": logp.detach().clone(), "values": values.detach().clone(),
                 "rewards": rewards.detach().clone(), "next_values": next_values.detach().clone(),
+                "reward_terms": {name: value.detach().clone()
+                                 for name, value in info.get("reward_terms", {}).items()},
                 "terminated": terminated, "truncated": truncated,
                 "successor": successor.detach().clone(), "valid": valid,
                 "successor_valid": successor_valid,
@@ -175,5 +177,4 @@ class PIEPPO(PPO):
         reset_mask = final["terminated"] | final["truncated"]
         hidden = hidden * (~reset_mask).unsqueeze(-1)
         return hidden.detach(), reset_mask.detach().clone()
-
 

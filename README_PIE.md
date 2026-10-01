@@ -31,7 +31,7 @@ python -s legged_gym/scripts/play.py --task lite3_pie --headless --num_envs 2 --
 
 默认 4096 环境、8 步 rollout、15000 iterations，每完成 500 轮保存 `model_500.pt`、`model_1000.pt` 等，训练结束另存 `checkpoint.pt`。可以通过 `--num_envs`、`--max_iterations`、`--rollout_steps`、`--save_interval` 覆盖。以上最小验证命令显式使用 2 环境、1 轮和 16 步，使 10 Hz / 100 ms 延迟的视觉帧真正进入 rollout。检查脚本不训练。`runs/minimal` 保存的是此前 2.2.4 实现的 checkpoint、指标和日志，不能作为本次 v1.0.2 修改的运行证据；再次在同目录训练会覆盖 checkpoint。
 
-启动时打印 Actor、Critic、本体 MLP、深度 CNN、Transformer、GRU、各估计头及解码器。训练终端采用原版 RSL-RL 的分栏日志格式，包含速度、采集/更新时间、噪声标准差、回合奖励/长度及 PIE 辅助损失；同时保留 `metrics.jsonl` 并写入 TensorBoard。`Mean reward` / `Train/mean_reward` 是最近 100 个完成回合的累计奖励；`Mean step reward` / `Train/mean_step_reward` 和 JSON 的 `mean_reward` 是 rollout 中的单步平均奖励，不能直接比较。`VAE KL loss` 是潜变量正则项。回合统计跨 rollout 累计，在终止或超时后分别清零；随机初始超时计数不计入已采集的回合长度。
+启动时打印 Actor、Critic、本体 MLP、深度 CNN、Transformer、GRU、各估计头及解码器。训练终端直接调用原版 RSL-RL `OnPolicyRunner.log()`，显示原版速度、采集/更新时间、噪声标准差、回合奖励/长度，以及全部 10 个 PIE 奖励项的 `Mean episode rew_*`；同时保留 `metrics.jsonl` 并写入 TensorBoard。`Mean reward` / `Train/mean_reward` 是最近 100 个完成回合的累计奖励；`Train/mean_step_reward` 和 JSON 的 `mean_reward` 是 rollout 中的单步平均奖励，不能直接比较。各项奖励按原 `LeggedRobot.reset_idx()` 的口径，累计已加权、按控制 dt 缩放的奖励，结束回合时除以配置的最大回合秒数，写入 `Episode/rew_*`。只有完成回合后才显示分项，未结束的回合累计值跨 rollout 保留。`rew_tracking_lin_vel`、`rew_tracking_ang_vel`、`rew_lin_vel_z`、`rew_ang_vel_xy`、`rew_dof_acc` 使用原仓库熟悉的命名，其余保留 PIE 奖励名。PIE 辅助损失单独记录在 TensorBoard 和 JSON 中；`PIE/vae_kl_loss` 是潜变量正则项。随机初始超时计数不计入已采集的回合长度。
 
 仅 Lite3 PIE 的 PhysX 配置预留 `max_gpu_contact_pairs=2**25`、`default_buffer_size_multiplier=10.0`，用于 4096 环境共享地形时的 GPU 碰撞缓冲区；其他机器人任务继续使用原配置。该设置增加物理缓冲区显存占用，与网络超参数无关。
 

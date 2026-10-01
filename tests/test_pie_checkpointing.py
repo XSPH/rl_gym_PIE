@@ -16,6 +16,7 @@ class _Algorithm:
         torch.nn.init.zeros_(self.actor_critic.weight)
         torch.nn.init.zeros_(self.actor_critic.bias)
         self.optimizer = torch.optim.Adam(self.actor_critic.parameters(), lr=0.1)
+        self.learning_rate = 0.1
 
     def collect(self, env, obs, hidden, reset_mask, steps):
         batch = {"frames": [{"rewards": torch.ones(1),
@@ -28,7 +29,7 @@ class _Algorithm:
         loss = (self.actor_critic(torch.ones(1, 1)) - 1).square().mean()
         loss.backward()
         self.optimizer.step()
-        return {"loss": loss.item()}
+        return {"loss": loss.item(), "value": 0.0, "policy": 0.0}
 
     def refresh_hidden(self, batch):
         return torch.zeros(1, 1), torch.zeros(1, dtype=torch.bool)
@@ -38,7 +39,8 @@ def _runner(output):
     runner = PIEOnPolicyRunner.__new__(PIEOnPolicyRunner)
     runner.pie_cfg = PIERunnerCfg(save_interval=500)
     runner.save_interval = 500
-    runner.env = SimpleNamespace()
+    runner.env = SimpleNamespace(num_envs=1)
+    runner.device = "cpu"
     runner.alg = _Algorithm()
     runner.log_dir = str(output)
     runner.num_steps_per_env = 1
@@ -108,3 +110,56 @@ def test_episode_statistics_cross_rollouts_and_reset_only_finished_envs(tmp_path
     assert list(runner._reward_buffer) == [2.0, 4.0, 10.0]
     assert list(runner._length_buffer) == [1, 2, 2]
     assert runner._episode_reward_sum.tolist() == [5.0, 0.0]
+
+
+def test_reward_terms_use_native_episode_scaling_and_keep_continuing_envs(tmp_path):
+    runner = _runner(tmp_path)
+    runner.env.config = SimpleNamespace(policy_dt=0.02, episode_seconds=20.0, reward_scale_dt=True)
+    def frame(tracking, collision, terminated, truncated):
+        tracking, collision = torch.tensor(tracking), torch.tensor(collision)
+        return {"rewards": (tracking+collision)*0.02,
+                "terminated": torch.tensor(terminated), "truncated": torch.tensor(truncated),
+                "reward_terms": {"tracking_linear": tracking, "collision": collision}}
+    infos = runner._update_episode_statistics([
+        frame([10.0, 20.0], [-2.0, -4.0], [False, True], [False, False]),
+        frame([30.0, 40.0], [-6.0, -8.0], [False, False], [True, False]),
+    ])
+    assert len(infos) == 2
+    assert infos[0]["rew_tracking_lin_vel"].item() == pytest.approx(0.02)
+    assert infos[0]["rew_collision"].item() == pytest.approx(-0.004)
+    assert infos[1]["rew_tracking_lin_vel"].item() == pytest.approx(0.04)
+    assert infos[1]["rew_collision"].item() == pytest.approx(-0.008)
+    infos = runner._update_episode_statistics([
+        frame([50.0, 60.0], [-10.0, -12.0], [False, True], [False, False])])
+    assert infos[0]["rew_tracking_lin_vel"].item() == pytest.approx(0.1)
+    assert infos[0]["rew_collision"].item() == pytest.approx(-0.02)
+    assert runner._reward_term_sums["tracking_linear"].tolist() == [1.0, 0.0]
+
+
+def test_original_logger_prints_and_records_each_reward_without_double_counting(tmp_path, capsys):
+    from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
+    from torch.utils.tensorboard import SummaryWriter
+    runner = _runner(tmp_path)
+    runner.current_learning_iteration = 1
+    runner.writer = SummaryWriter(log_dir=str(tmp_path))
+    infos = runner._update_episode_statistics([{
+        "rewards": torch.ones(1), "terminated": torch.ones(1, dtype=torch.bool),
+        "truncated": torch.zeros(1, dtype=torch.bool),
+        "reward_terms": {"tracking_linear": torch.tensor([2.0]), "collision": torch.tensor([-1.0])}}])
+    metrics = {"iteration": 1, "value": 0.2, "policy": -0.1, "loss": 0.3,
+               "collection_time": 0.3, "learning_time": 0.1, "mean_reward": 1.0}
+    runner._log_pie_iteration(metrics, 15000, infos)
+    text = capsys.readouterr().out
+    assert "Learning iteration 0/15000" in text
+    assert "Mean episode rew_tracking_lin_vel:" in text
+    assert "Mean episode rew_collision:" in text
+    assert "Surrogate loss:" in text
+    assert runner.current_learning_iteration == 1
+    assert runner.tot_timesteps == 1
+    assert runner.tot_time == pytest.approx(0.4)
+    runner.writer.close()
+    events = EventAccumulator(str(tmp_path)).Reload()
+    assert events.Scalars("Episode/rew_tracking_lin_vel")[0].value == 2.0
+    assert events.Scalars("Episode/rew_collision")[0].value == -1.0
+    assert events.Scalars("Train/mean_reward")[0].value == 1.0
+    assert events.Scalars("Loss/value_function")[0].step == 0

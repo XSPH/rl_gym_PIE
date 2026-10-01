@@ -48,8 +48,12 @@ checkpoints at completed iterations 500, 1000, and so on. It also writes
 checkpoint.pt at the end of each learn() call. Saves use a temporary file and
 atomic replacement. Periodic checkpoints include weights and optimizer state;
 optimizer resume remains unsupported.
-The PIE runner prints native RSL-style iteration tables and writes TensorBoard
-events alongside metrics.jsonl. Train/mean_reward is a rolling mean of the last
+The PIE runner calls the unchanged native OnPolicyRunner.log() and writes
+TensorBoard events alongside metrics.jsonl. Every actual PIE reward term is
+accumulated across rollouts, cleared only for finished environments and reported
+as Mean episode rew_* / Episode/rew_*, using LeggedRobot's weighted, dt-scaled
+episode sum divided by the configured maximum episode duration. No reward
+formula or weight is changed for logging. Train/mean_reward is a rolling mean of the last
 100 completed episode returns; Train/mean_step_reward is the per-transition
 rollout reward. Episode lengths count collected steps across rollout boundaries,
 independent of randomized timeout counters. PIE VAE/estimation losses have

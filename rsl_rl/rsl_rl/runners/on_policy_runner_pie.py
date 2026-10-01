@@ -2,6 +2,7 @@
 from dataclasses import asdict, dataclass, field, is_dataclass
 from pathlib import Path
 from collections import deque
+from copy import copy
 import json
 import random
 import time
@@ -93,8 +94,7 @@ class PIEOnPolicyRunner(OnPolicyRunner):
             self._observation, self._hidden, self._reset_mask = obs, hidden, reset_mask
             self.current_learning_iteration += 1
             transitions = len(batch["frames"]) * hidden.shape[0]
-            self.tot_timesteps += transitions
-            self._update_episode_statistics(batch["frames"])
+            ep_infos = self._update_episode_statistics(batch["frames"])
             last.update(iteration=self.current_learning_iteration,
                         mean_reward=float(torch.stack([f["rewards"] for f in batch["frames"]]).mean()),
                         transitions=transitions)
@@ -102,17 +102,16 @@ class PIEOnPolicyRunner(OnPolicyRunner):
                         mean_action_noise_std=float(self.alg.actor_critic.std.detach().mean()))
             stop = time.perf_counter()
             iteration_time = stop - start
-            self.tot_time += iteration_time
             last.update(collection_time=collected-start, learning_time=stop-collected,
-                        iteration_time=iteration_time, total_time=self.tot_time,
-                        total_timesteps=self.tot_timesteps, fps=transitions/max(iteration_time, 1e-9))
+                        iteration_time=iteration_time, total_time=self.tot_time+iteration_time,
+                        total_timesteps=self.tot_timesteps+transitions, fps=transitions/max(iteration_time, 1e-9))
             if self._reward_buffer:
                 last.update(mean_episode_reward=sum(self._reward_buffer)/len(self._reward_buffer),
                             mean_episode_length=sum(self._length_buffer)/len(self._length_buffer))
             if output is not None:
                 with (output / "metrics.jsonl").open("a", encoding="utf-8") as stream:
                     stream.write(json.dumps(last, allow_nan=False) + "\n")
-            self._log_pie_iteration(last, target_iteration)
+            self._log_pie_iteration(last, target_iteration, ep_infos)
             if output is not None and self.current_learning_iteration % self.save_interval == 0:
                 self.save(output / "model_{}.pt".format(self.current_learning_iteration))
         if output is not None:
@@ -129,62 +128,72 @@ class PIEOnPolicyRunner(OnPolicyRunner):
             self._episode_reward_sum = torch.zeros_like(frames[0]["rewards"])
             self._episode_step_count = torch.zeros_like(frames[0]["rewards"], dtype=torch.long)
             self._reward_buffer, self._length_buffer = deque(maxlen=100), deque(maxlen=100)
-        returns, lengths = [], []
+            self._reward_term_sums = {}
+        returns, lengths, ep_infos = [], [], []
+        config = getattr(self.env, "config", None)
+        scale = config.policy_dt if config is not None and config.reward_scale_dt else 1.0
+        horizon = config.episode_seconds if config is not None else 1.0
+        # Use familiar LeggedRobot names for equivalent PIE reward terms.
+        names = {"tracking_linear": "tracking_lin_vel", "tracking_yaw": "tracking_ang_vel",
+                 "vertical_velocity": "lin_vel_z", "angular_velocity": "ang_vel_xy",
+                 "joint_acceleration": "dof_acc"}
         for frame in frames:
             self._episode_reward_sum += frame["rewards"]
             self._episode_step_count += 1
+            for name, value in frame.get("reward_terms", {}).items():
+                if name not in self._reward_term_sums:
+                    self._reward_term_sums[name] = torch.zeros_like(frame["rewards"])
+                self._reward_term_sums[name] += torch.nan_to_num(value, nan=0.0, posinf=0.0, neginf=0.0)*scale
             done = frame["terminated"] | frame["truncated"]
             if done.any():
                 returns.append(self._episode_reward_sum[done].clone())
                 lengths.append(self._episode_step_count[done].clone())
+                # Match LeggedRobot.reset_idx: mean of completed episode sums
+                # divided by the configured episode horizon in seconds.
+                episode = {}
+                for name, total in self._reward_term_sums.items():
+                    episode["rew_" + names.get(name, name)] = total[done].mean()/horizon
+                    total[done] = 0
+                if episode:
+                    ep_infos.append(episode)
                 self._episode_reward_sum[done] = 0
                 self._episode_step_count[done] = 0
         if returns:
             self._reward_buffer.extend(torch.cat(returns).cpu().tolist())
             self._length_buffer.extend(torch.cat(lengths).cpu().tolist())
+        return ep_infos
 
-    def _log_pie_iteration(self, metrics, target_iteration):
-        """Native RSL-style console/TensorBoard with PIE auxiliary losses."""
+    def _log_pie_iteration(self, metrics, target_iteration, ep_infos):
+        """Pass PIE statistics through the unchanged original RSL log()."""
+        if self.writer is None:
+            self.tot_timesteps = metrics["total_timesteps"]
+            self.tot_time = metrics["total_time"]
+            return
+        # The native logger expects a fixed start offset while learn() runs.
+        # An isolated, shallow logging view keeps PIE's completed-iteration
+        # checkpoint counter intact and avoids counting time/steps twice.
+        logger = copy(self)
+        logger.current_learning_iteration = 0
+        OnPolicyRunner.log(logger, {
+            "it": metrics["iteration"]-1,
+            "num_learning_iterations": target_iteration,
+            "collection_time": metrics["collection_time"],
+            "learn_time": metrics["learning_time"],
+            "mean_value_loss": metrics["value"],
+            "mean_surrogate_loss": metrics["policy"],
+            "ep_infos": ep_infos, "rewbuffer": self._reward_buffer,
+            "lenbuffer": self._length_buffer,
+        })
+        self.tot_timesteps, self.tot_time = logger.tot_timesteps, logger.tot_time
         tags = {
-            "Loss/value_function": "value", "Loss/surrogate": "policy",
-            "Loss/total": "loss", "Loss/learning_rate": "learning_rate",
-            "Policy/mean_noise_std": "mean_action_noise_std",
-            "Perf/total_fps": "fps", "Perf/collection_time": "collection_time",
-            "Perf/learning_time": "learning_time", "Train/mean_step_reward": "mean_reward",
-            "Train/mean_reward": "mean_episode_reward",
-            "Train/mean_episode_length": "mean_episode_length",
+            "Loss/total": "loss", "Train/mean_step_reward": "mean_reward",
             "PIE/velocity_loss": "velocity", "PIE/foot_clearance_loss": "foot_clearance",
             "PIE/heightmap_loss": "heightmap", "PIE/successor_loss": "successor",
             "PIE/vae_kl_loss": "kl", "PIE/gradient_norm_before_clipping": "grad_norm",
         }
-        if self.writer is not None:
-            for tag, key in tags.items():
-                if key in metrics:
-                    self.writer.add_scalar(tag, metrics[key], metrics["iteration"])
-        lines = ["#"*80, " Learning iteration {}/{} ".format(
-            metrics["iteration"], target_iteration).center(80), "",
-            "{:>35} {:.0f} steps/s (collection: {:.3f}s, learning: {:.3f}s)".format(
-                "Computation:", metrics["fps"], metrics["collection_time"], metrics["learning_time"])]
-        labels = [("Value function loss:", "value"), ("Surrogate loss:", "policy"),
-                  ("Mean action noise std:", "mean_action_noise_std"),
-                  ("Mean reward:", "mean_episode_reward"),
-                  ("Mean episode length:", "mean_episode_length"),
-                  ("Mean step reward:", "mean_reward"),
-                  ("Velocity estimation loss:", "velocity"),
-                  ("Foot clearance loss:", "foot_clearance"),
-                  ("Height map reconstruction loss:", "heightmap"),
-                  ("Successor reconstruction loss:", "successor"),
-                  ("VAE KL loss:", "kl"), ("Total loss:", "loss"),
-                  ("Gradient norm before clipping:", "grad_norm")]
-        lines.extend("{:>35} {:.4f}".format(label, metrics[key])
-                     for label, key in labels if key in metrics)
-        remaining = target_iteration - metrics["iteration"]
-        lines.extend(["-"*80,
-                      "{:>35} {}".format("Total timesteps:", metrics["total_timesteps"]),
-                      "{:>35} {:.2f}s".format("Iteration time:", metrics["iteration_time"]),
-                      "{:>35} {:.2f}s".format("Total time:", metrics["total_time"]),
-                      "{:>35} {:.1f}s".format("ETA:", self.tot_time / metrics["iteration"] * remaining)])
-        print("\n".join(lines), flush=True)
+        for tag, key in tags.items():
+            if key in metrics:
+                self.writer.add_scalar(tag, metrics[key], metrics["iteration"]-1)
 
     def save(self, path, infos=None):
         environment_cfg = getattr(self.env, "config", None)
