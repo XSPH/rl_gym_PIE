@@ -1,0 +1,129 @@
+{
+  "date": "2026-09-30",
+  "robot": "Lite3",
+  "scope": "minimal validation only",
+  "hardware": "NVIDIA RTX 4060 Laptop GPU, 8 GiB",
+  "large_scale_training": false,
+  "paper_performance_verified": false,
+  "projects": {
+    "isaacgym": {
+      "path": "unitree_rl_gym",
+      "upstream_commit": "276801e46c5d433564f24658bac64f254b7d2d4b",
+      "cpu_checks_passed": 10,
+      "dependency_check": "No broken requirements found.",
+      "gpu_backend_checks": {
+        "checks": 2,
+        "passed": true,
+        "optical_depth_m": 2,
+        "expected_depth_m": 2,
+        "pre_reset_labels": true,
+        "history_reset": true
+      },
+      "native_train": {
+        "exit_code": 0,
+        "num_envs": 2,
+        "rollout_steps": 16,
+        "metrics": {
+          "velocity": 0.09334213472902775,
+          "foot_clearance": 0.11126297526061535,
+          "heightmap": 0.15821020305156708,
+          "successor": 0.1400788612663746,
+          "kl": 1.1078547313809395,
+          "loss": 1.7480765283107758,
+          "policy": -0.03618122637271881,
+          "value": 0.2606057929806411,
+          "grad_norm": 42.16046619415283,
+          "iteration": 1,
+          "mean_reward": -0.06011616066098213,
+          "transitions": 32
+        }
+      },
+      "native_play": {
+        "exit_code": 0,
+        "metrics": {
+          "steps": 4,
+          "mean_reward": 0.01573990029282868,
+          "terminations": 0,
+          "timeouts": 0,
+          "claim": "untrained/minimally trained plumbing check; not paper performance"
+        }
+      },
+      "checkpoint": "unitree_rl_gym/runs/minimal/checkpoint.pt",
+      "log_directory": "unitree_rl_gym/runs/minimal"
+    },
+    "mjlab": {
+      "path": "unitree_rl_mjlab",
+      "upstream_commit": "1425b15f73bd4095f0df53709d7c389c3eb9e790",
+      "cpu_checks_passed": 12,
+      "dependency_check": "No broken requirements found.",
+      "gpu_backend_checks": {
+        "checks": 2,
+        "passed": true,
+        "num_envs": 2,
+        "steps": 18,
+        "depth_renders_in_first_16_steps": 4,
+        "depth_range": [
+          -0.44444283843040466,
+          0.5
+        ],
+        "step_10_delivers_step_5_frame": true,
+        "pre_reset_labels": true,
+        "history_reset": true
+      },
+      "native_train": {
+        "exit_code": 0,
+        "num_envs": 2,
+        "rollout_steps": 16,
+        "metrics": {
+          "velocity": 0.12731116730719805,
+          "foot_clearance": 0.07259828737005591,
+          "heightmap": 0.030596619937568903,
+          "successor": 0.2011684961616993,
+          "kl": 1.2629971504211426,
+          "loss": 3.504068970680237,
+          "policy": -0.06173182278871536,
+          "value": 1.9582593441009521,
+          "grad_norm": 48.042927742004395,
+          "iteration": 1,
+          "mean_reward": -0.23861706256866455,
+          "transitions": 32
+        }
+      },
+      "native_play": {
+        "exit_code": 0,
+        "metrics": {
+          "steps": 4,
+          "mean_reward": -0.4308197535574436,
+          "terminations": 0,
+          "timeouts": 0,
+          "claim": "untrained/minimally trained plumbing check; not paper performance"
+        }
+      },
+      "checkpoint": "unitree_rl_mjlab/logs/rsl_rl/lite3_pie/2026-09-30_21-53-53_minimal/checkpoint.pt",
+      "log_directory": "unitree_rl_mjlab/logs/rsl_rl/lite3_pie/2026-09-30_21-53-53_minimal"
+    }
+  },
+  "post_validation_change": {
+    "project": "unitree_rl_gym",
+    "previous_rsl_rl": "rsl-rl-lib 2.2.4",
+    "current_rsl_rl": "project-local rsl_rl 1.0.2",
+    "record": "rsl_rl_v1_pie_migration.md",
+    "runtime_tests_run": false,
+    "prior_results_apply_to_current_algorithm": false
+  },
+  "static_code_review": {
+    "date": "2026-10-01",
+    "record": "code_review_2026-10-01.md",
+    "python_files_parsed": {
+      "unitree_rl_gym": 21,
+      "project_local_rsl_rl": 9,
+      "unitree_rl_mjlab": 30
+    },
+    "model_config_ast_equal": true,
+    "git_diff_check_passed": true,
+    "runtime_tests_run": false,
+    "simulation_run": false,
+    "training_run": false,
+    "prior_results_apply_to_current_source": false
+  }
+}

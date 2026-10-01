@@ -1,0 +1,2019 @@
+{
+  "repository": "rl_gym_PIE",
+  "snapshot_type": "source-only; upstream history retained locally",
+  "upstream": {
+    "url": "https://github.com/unitreerobotics/unitree_rl_gym.git",
+    "commit": "276801e46c5d433564f24658bac64f254b7d2d4b"
+  },
+  "max_file_size_bytes": 26214400,
+  "excluded_files": [
+    "deploy/pre_train/g1/motion.pt",
+    "deploy/pre_train/h1/motion.pt",
+    "deploy/pre_train/h1_2/motion.pt"
+  ],
+  "files": [
+    {
+      "path": ".gitignore",
+      "bytes": 3217,
+      "mode": "100644",
+      "sha256": "e2380de1c6694cf602bbda584b235078ddd4869c3852d9fcd3c13f47ae2d2eb8"
+    },
+    {
+      "path": "LICENSE",
+      "bytes": 1561,
+      "mode": "100644",
+      "sha256": "aef6394ba1597725a68308167324e675f562e6606027404deb1b9da254c2b9c1"
+    },
+    {
+      "path": "PIE_NETWORK.md",
+      "bytes": 7078,
+      "mode": "100644",
+      "sha256": "89ee93506443fd65fa5ca59edf78cfb5ba9dd59ae6fbd83dd61b4d3eb263d7f4"
+    },
+    {
+      "path": "PUBLICATION.md",
+      "bytes": 1685,
+      "mode": "100644",
+      "sha256": "2fab753685880afc6e45e8fbf5ecd97d71cb6c1f204288ba2a572973c6a671c5"
+    },
+    {
+      "path": "README.md",
+      "bytes": 8906,
+      "mode": "100644",
+      "sha256": "534f0a7776da3590f008b4f74f2c976a7228304927abc73d2830ff7f39a4fbfd"
+    },
+    {
+      "path": "README_PIE.md",
+      "bytes": 5574,
+      "mode": "100644",
+      "sha256": "556d36b5159250fa24db349d266de7710ce801f70145cea4f72f9132841059ac"
+    },
+    {
+      "path": "README_zh.md",
+      "bytes": 6973,
+      "mode": "100644",
+      "sha256": "2059014ab292a5012d2902284ff5d35a596dcf8990cf94c0028423436e7754bc"
+    },
+    {
+      "path": "deploy/deploy_mujoco/configs/g1.yaml",
+      "bytes": 737,
+      "mode": "100644",
+      "sha256": "73044e7d355c61915695c16d6e09eb3efef46eec1e3d708fd3eb9157dfe3bbbb"
+    },
+    {
+      "path": "deploy/deploy_mujoco/configs/h1.yaml",
+      "bytes": 697,
+      "mode": "100644",
+      "sha256": "4e509fa63fda52e38d21d9f1924b7c0d6bf9dfd1c2d9b94450b7f6e7ca281329"
+    },
+    {
+      "path": "deploy/deploy_mujoco/configs/h1_2.yaml",
+      "bytes": 735,
+      "mode": "100644",
+      "sha256": "0a08fd46c4d12a35c74784441e682e94186348802f04659a293733239d301b14"
+    },
+    {
+      "path": "deploy/deploy_mujoco/deploy_mujoco.py",
+      "bytes": 4862,
+      "mode": "100644",
+      "sha256": "48e9f7a6b8ba701e68dfa48f2e89944c9f2aac1ec39c0a9915d6fe14ec71a4da"
+    },
+    {
+      "path": "deploy/deploy_real/README.md",
+      "bytes": 4503,
+      "mode": "100644",
+      "sha256": "84c30c9259c2ed6efeb3c4a833dd99497f073942723dd243852065e524887ca2"
+    },
+    {
+      "path": "deploy/deploy_real/README.zh.md",
+      "bytes": 3866,
+      "mode": "100644",
+      "sha256": "cbb8ae46fe41c2e846784bd7d846c924aa7f7a27dba3c81bf541afe2a6aa532e"
+    },
+    {
+      "path": "deploy/deploy_real/common/command_helper.py",
+      "bytes": 1745,
+      "mode": "100644",
+      "sha256": "a06575599538967d24459645b51ac63aaab498ddb9ee4c268d5fb3b977c9a7df"
+    },
+    {
+      "path": "deploy/deploy_real/common/remote_controller.py",
+      "bytes": 772,
+      "mode": "100644",
+      "sha256": "16c9e12aaaa2667426ddb90ef89d124f9d4d4a8a6c8b42196ebfea85ddc0b785"
+    },
+    {
+      "path": "deploy/deploy_real/common/rotation_helper.py",
+      "bytes": 841,
+      "mode": "100644",
+      "sha256": "236cdb548d8a69f9abf2ec064ce961c502c02f9ab28500f7c88209925448489d"
+    },
+    {
+      "path": "deploy/deploy_real/config.py",
+      "bytes": 1723,
+      "mode": "100644",
+      "sha256": "4718bb73215726d656ee90acb0d30174e35eff2592c70e66a918f6e8bd19c374"
+    },
+    {
+      "path": "deploy/deploy_real/configs/g1.yaml",
+      "bytes": 1149,
+      "mode": "100644",
+      "sha256": "fb6fd920c9180baf9a50c389c8119a9f25e0096626de7de982c127ecfbffad78"
+    },
+    {
+      "path": "deploy/deploy_real/configs/h1.yaml",
+      "bytes": 1051,
+      "mode": "100644",
+      "sha256": "1da6feff0a28b6772d1402dd182f2276419a5d91ec7cf97437ee44b0ba112f60"
+    },
+    {
+      "path": "deploy/deploy_real/configs/h1_2.yaml",
+      "bytes": 1163,
+      "mode": "100644",
+      "sha256": "5a1766e3be6dd747c990a29e2ccf208853b13889d33e48a3f7839d37e43ba866"
+    },
+    {
+      "path": "deploy/deploy_real/cpp_g1/AtomicLock.h",
+      "bytes": 632,
+      "mode": "100644",
+      "sha256": "97b4a41de4d6cef4ed2ceb81cf6ee9a6da335b10154cc4150df2440bb0273416"
+    },
+    {
+      "path": "deploy/deploy_real/cpp_g1/CMakeLists.txt",
+      "bytes": 587,
+      "mode": "100644",
+      "sha256": "231f655ff0a05b50ef292685429192b509656d3f52fd8b985dde423e8ac9f731"
+    },
+    {
+      "path": "deploy/deploy_real/cpp_g1/Controller.cpp",
+      "bytes": 7576,
+      "mode": "100644",
+      "sha256": "9128072228749e672cbcdf4169c65a1e401b0967a612d6bbca7b4edcc2da62f6"
+    },
+    {
+      "path": "deploy/deploy_real/cpp_g1/Controller.h",
+      "bytes": 1658,
+      "mode": "100644",
+      "sha256": "cd78c1d9186f754ac8a6d95637aea3aba45809806d8adaa494e10c90daafc11a"
+    },
+    {
+      "path": "deploy/deploy_real/cpp_g1/DataBuffer.h",
+      "bytes": 1246,
+      "mode": "100644",
+      "sha256": "f1afd0281a6a6cb6f25dfa149e749a77a8c81c0502a23dc01fc835d82106f04d"
+    },
+    {
+      "path": "deploy/deploy_real/cpp_g1/joystick.h",
+      "bytes": 712,
+      "mode": "100644",
+      "sha256": "b1e10d55ec8e93e6b1f1d11534cb501b522114b0765f4daef9dbdf9ac85e03b5"
+    },
+    {
+      "path": "deploy/deploy_real/cpp_g1/main.cpp",
+      "bytes": 327,
+      "mode": "100644",
+      "sha256": "0c2cbf9db2c361d235157844d15c50e6eacd55e5c76eda10e27c8a785e8a0bad"
+    },
+    {
+      "path": "deploy/deploy_real/cpp_g1/utilities.cpp",
+      "bytes": 565,
+      "mode": "100644",
+      "sha256": "a7eab2747b1a21e61691c2cc7c999618f01d5c19234634965fcbc1aca0c4a162"
+    },
+    {
+      "path": "deploy/deploy_real/cpp_g1/utilities.h",
+      "bytes": 111,
+      "mode": "100644",
+      "sha256": "0d1191311a9f17dfc41787f1ade5ebc3cba9b79a9726379a8ac73b0e184753bf"
+    },
+    {
+      "path": "deploy/deploy_real/deploy_real.py",
+      "bytes": 11684,
+      "mode": "100644",
+      "sha256": "f83954d37a8d0fab4fb1453f59ed29f7054911adbaa25b07b05ae0f47416a15c"
+    },
+    {
+      "path": "doc/setup_en.md",
+      "bytes": 3557,
+      "mode": "100644",
+      "sha256": "34190cc282ba41f0fd5b0bab44d03b40ff28993aff78486359861bebeb0bd03a"
+    },
+    {
+      "path": "doc/setup_zh.md",
+      "bytes": 3082,
+      "mode": "100644",
+      "sha256": "8868785e99517deec456537e9db0583ef5b36d299a3e5b78073b0d7367b76693"
+    },
+    {
+      "path": "docs/code_review_2026-10-01.md",
+      "bytes": 14407,
+      "mode": "100644",
+      "sha256": "f894b160ddfe168a61166f5592bb2c7e991693515ff0e45811fff267fbffafa0"
+    },
+    {
+      "path": "docs/environment_versions.json",
+      "bytes": 2814,
+      "mode": "100644",
+      "sha256": "dfbd996306be59a6add3cbe35d76cb81e0f2228c87bf55de0ebb940833f725af"
+    },
+    {
+      "path": "docs/implementation_plan.md",
+      "bytes": 2189,
+      "mode": "100644",
+      "sha256": "5e15fb9a96d54dfa68569ddc11880044857e22533f7b8a9877f991ffbe8244fc"
+    },
+    {
+      "path": "docs/mjlab_visual_components.md",
+      "bytes": 3075,
+      "mode": "100644",
+      "sha256": "8e442c1df359b01bef04a77ac1b10f5067c3d899fbe5cc0a35c4f2df4560f96c"
+    },
+    {
+      "path": "docs/pie_method.md",
+      "bytes": 9362,
+      "mode": "100644",
+      "sha256": "54044386c67f217edaa40b8b5d8760fe560a263adfda3f4fe3fc2036b0c4941d"
+    },
+    {
+      "path": "docs/rsl_rl_v1_pie_migration.md",
+      "bytes": 2475,
+      "mode": "100644",
+      "sha256": "dd244f06bbb8bfbf3127ef6be947b7b8fb0e10c9a34bce95e47be0839a12ecd5"
+    },
+    {
+      "path": "docs/validation.md",
+      "bytes": 4250,
+      "mode": "100644",
+      "sha256": "440f60b96785457d271097fa0429a0ccc1e195c03b3f3c663808d43151b3990f"
+    },
+    {
+      "path": "docs/validation_results.json",
+      "bytes": 4105,
+      "mode": "100644",
+      "sha256": "62a9e4ea52cd20c6d8ac9207c077dc69b343f65e17662353c52e9df01fd55493"
+    },
+    {
+      "path": "environment.pie.yml",
+      "bytes": 564,
+      "mode": "100644",
+      "sha256": "8b18dbdddde52bfb6f17adc46ee31e87e8ca0dedee6a8ef7a714700e244b422d"
+    },
+    {
+      "path": "legged_gym/LICENSE",
+      "bytes": 1730,
+      "mode": "100644",
+      "sha256": "d5b70bfeae0eb84295cff9dd7daf71e28a809eae4a1953762d491cb256dafeb6"
+    },
+    {
+      "path": "legged_gym/__init__.py",
+      "bytes": 171,
+      "mode": "100644",
+      "sha256": "6a255b7f9ad90ddb96036a32e711dfe4a49dcb26c9c2e8e891417ad9edecc8f6"
+    },
+    {
+      "path": "legged_gym/envs/__init__.py",
+      "bytes": 1056,
+      "mode": "100644",
+      "sha256": "79a8f8f5952a74f838fce3eee2160df4e611d98776aba823235a8b3b79080151"
+    },
+    {
+      "path": "legged_gym/envs/base/base_config.py",
+      "bytes": 963,
+      "mode": "100644",
+      "sha256": "0597eabb0aa9422240ea408e7bd3aa0ebc9ec36cc781d1e5fb26773ca3579362"
+    },
+    {
+      "path": "legged_gym/envs/base/base_task.py",
+      "bytes": 4469,
+      "mode": "100644",
+      "sha256": "bbfbb77ae8f90b0383af6003b554c47de75bea75b9f77e29a548cff123306330"
+    },
+    {
+      "path": "legged_gym/envs/base/legged_robot.py",
+      "bytes": 37792,
+      "mode": "100644",
+      "sha256": "255c67339be0c8e98332a632330d62d56c61de4c2e93c43bd30402e9d76eac3d"
+    },
+    {
+      "path": "legged_gym/envs/base/legged_robot_config.py",
+      "bytes": 8413,
+      "mode": "100644",
+      "sha256": "009677a88e2cca66feae457a90679c32fc8676272045a29649a125fb59f2ef56"
+    },
+    {
+      "path": "legged_gym/envs/g1/g1_config.py",
+      "bytes": 3912,
+      "mode": "100644",
+      "sha256": "26eae3cab4141b9f17462eb5150b355643a8466140eb6b8941219e6f28b667b2"
+    },
+    {
+      "path": "legged_gym/envs/g1/g1_env.py",
+      "bytes": 5569,
+      "mode": "100644",
+      "sha256": "7c62c9e1e2222e1446ab4cfb64a471d063998a55c02c0600874451edcc944d82"
+    },
+    {
+      "path": "legged_gym/envs/go2/go2_config.py",
+      "bytes": 2052,
+      "mode": "100644",
+      "sha256": "fcfbdfc35ad0145af69a470bee28ee2e6a07e2c771608c047dd867f474351d0f"
+    },
+    {
+      "path": "legged_gym/envs/h1/h1_config.py",
+      "bytes": 4374,
+      "mode": "100644",
+      "sha256": "5bcac02e88e087734bdfaf9d9e304a20598b691e572864b9630c0ebd56216079"
+    },
+    {
+      "path": "legged_gym/envs/h1/h1_env.py",
+      "bytes": 5569,
+      "mode": "100644",
+      "sha256": "657a68d5f2a401395912c5334a717ffa4e3e408487509c2654519008602cd902"
+    },
+    {
+      "path": "legged_gym/envs/h1_2/README.md",
+      "bytes": 956,
+      "mode": "100644",
+      "sha256": "8c4d47b8ae7bd06eb2c337922745dcdb7e864ffc728e00e636937ea976195fea"
+    },
+    {
+      "path": "legged_gym/envs/h1_2/h1_2_config.py",
+      "bytes": 4277,
+      "mode": "100644",
+      "sha256": "10b27efb2d6eda02d426b4dabc7470613e762425fb002f00808823cc901ceee1"
+    },
+    {
+      "path": "legged_gym/envs/h1_2/h1_2_env.py",
+      "bytes": 5571,
+      "mode": "100644",
+      "sha256": "aa53c8680e53a38338a0c5e2cbd276e6ff6dbfb3120b57a84eaad5d399260ec5"
+    },
+    {
+      "path": "legged_gym/envs/pie/__init__.py",
+      "bytes": 46,
+      "mode": "100644",
+      "sha256": "5dc85ac4822c0ed5fad486145a420918e4389db3210225f0d86b51333a8f8660"
+    },
+    {
+      "path": "legged_gym/envs/pie/lite3.py",
+      "bytes": 5434,
+      "mode": "100644",
+      "sha256": "028d75651cbd337f08df7a6b8da124da8a198693770d55f6bb8c4c8f50b2d5aa"
+    },
+    {
+      "path": "legged_gym/envs/pie/lite3_config.py",
+      "bytes": 2313,
+      "mode": "100644",
+      "sha256": "3c06b0f9e718223ac0b8232a89040359a6eb09fbe832f67203a9153b75ca4f6a"
+    },
+    {
+      "path": "legged_gym/pie/__init__.py",
+      "bytes": 64,
+      "mode": "100644",
+      "sha256": "9a276d93a38054700db9cbabc404e1d2458eab1370bb3190d459e47dbfa1b867"
+    },
+    {
+      "path": "legged_gym/pie/config.py",
+      "bytes": 7444,
+      "mode": "100644",
+      "sha256": "cd1cde39b49ba3fb1a28d74f7ce2658bb55949c9ba4d84cc7a8c650a0adea0d1"
+    },
+    {
+      "path": "legged_gym/pie/kinematics.py",
+      "bytes": 3147,
+      "mode": "100644",
+      "sha256": "109b41d98fe62398e97a45924fbaf55270442b9d4200ed9a8d2b71920fac97ff"
+    },
+    {
+      "path": "legged_gym/pie/learner.py",
+      "bytes": 484,
+      "mode": "100644",
+      "sha256": "b0da88bb346eb48a8cced098b9a3cb87dffc22993c6ae4b2f47a01d4ec06bbf2"
+    },
+    {
+      "path": "legged_gym/pie/math_utils.py",
+      "bytes": 861,
+      "mode": "100644",
+      "sha256": "3cc79c8e988471b1bcf9bf2eb9a582a03ae74aafc267b8257850d677dec76aac"
+    },
+    {
+      "path": "legged_gym/pie/models.py",
+      "bytes": 210,
+      "mode": "100644",
+      "sha256": "9726a279f077f090874e8464c7847725718a371a068b2931107ece5ebf5e860f"
+    },
+    {
+      "path": "legged_gym/pie/sensors_and_rollout.py",
+      "bytes": 18919,
+      "mode": "100644",
+      "sha256": "9f73e2cfa294c02e1a4d99df9a4397687dd48d99e325acba6ebffc40f0a3fdaf"
+    },
+    {
+      "path": "legged_gym/pie/terrain.py",
+      "bytes": 5275,
+      "mode": "100644",
+      "sha256": "32ee7c7bcf5a22acf8f7d3557e4b48f0eb3df3b2702c89173bd383341acf3c35"
+    },
+    {
+      "path": "legged_gym/pie/warp_camera.py",
+      "bytes": 4174,
+      "mode": "100644",
+      "sha256": "d8cc8296c0ae030039ec44ba07ad5aa43901808da17a1509af0757b139cbd585"
+    },
+    {
+      "path": "legged_gym/scripts/check_pie_backend.py",
+      "bytes": 2781,
+      "mode": "100644",
+      "sha256": "7b03245fe1206f74b1a197f644a46d75d8d3ddf41b0b3d71af05a0d02215b5f0"
+    },
+    {
+      "path": "legged_gym/scripts/play.py",
+      "bytes": 2407,
+      "mode": "100644",
+      "sha256": "986cce2b35c6e906d2587ccce331a05a8cc6e8e1a0fa869d32f8fe077e4b42e4"
+    },
+    {
+      "path": "legged_gym/scripts/train.py",
+      "bytes": 627,
+      "mode": "100644",
+      "sha256": "ed51b8fd3682c179e58d3cb8d89323f4a984453549bfc92f441c405c92adcef5"
+    },
+    {
+      "path": "legged_gym/utils/__init__.py",
+      "bytes": 232,
+      "mode": "100644",
+      "sha256": "4377d4cc7058eca2e8c169b7cc024cf5d59343f5e747d1bce6c7474bb7da5dd5"
+    },
+    {
+      "path": "legged_gym/utils/helpers.py",
+      "bytes": 7775,
+      "mode": "100644",
+      "sha256": "d15950f6d9c6a94824cc8370a01c60840811ea47b8f47f64ee73b395548011b4"
+    },
+    {
+      "path": "legged_gym/utils/isaacgym_utils.py",
+      "bytes": 1071,
+      "mode": "100644",
+      "sha256": "95a3b10c4e0cd7254812c2a2cc2dfb4fb01e89d5a23fd233fcfdb922070200f8"
+    },
+    {
+      "path": "legged_gym/utils/logger.py",
+      "bytes": 1212,
+      "mode": "100644",
+      "sha256": "14f72701f376ec0aab2d1f432de6c97a8b2d221aa39f6b90bd28edaa9282c852"
+    },
+    {
+      "path": "legged_gym/utils/math.py",
+      "bytes": 758,
+      "mode": "100644",
+      "sha256": "4b2d840dd02515e236ce0cc9b21f4e0a049cb9e22a203ba93f3f253a9bd7691d"
+    },
+    {
+      "path": "legged_gym/utils/task_registry.py",
+      "bytes": 6823,
+      "mode": "100644",
+      "sha256": "408fda91bdb8aa9ee788c94862547f16666862b8a8bc2df1cee53548a056ecf6"
+    },
+    {
+      "path": "legged_gym/utils/terrain.py",
+      "bytes": 7649,
+      "mode": "100644",
+      "sha256": "4ccfbf2dcb9d26473d06891387b4c69854e5df75c410bb42a936cf2587d60c45"
+    },
+    {
+      "path": "resources/robots/g1_description/README.md",
+      "bytes": 2034,
+      "mode": "100644",
+      "sha256": "881f2db615b183cd4c4c99ab4f7062ba5ca29d73a8a99266a1ac04ff9b0b27c0"
+    },
+    {
+      "path": "resources/robots/g1_description/g1_12dof.urdf",
+      "bytes": 28696,
+      "mode": "100644",
+      "sha256": "52a0f729252cba764f610136f0772573e55694024b888da93abd5ad23aba0152"
+    },
+    {
+      "path": "resources/robots/g1_description/g1_12dof.xml",
+      "bytes": 15579,
+      "mode": "100644",
+      "sha256": "747ede40aa726b7352bae8353e95d0d0f908cec2257a27cbd78bc6e5a2d5a314"
+    },
+    {
+      "path": "resources/robots/g1_description/g1_23dof.urdf",
+      "bytes": 30330,
+      "mode": "100644",
+      "sha256": "7be9fc93e3d253646fd2438e6eece7fd9485d2177d0ac14cb6e983f39fd1485e"
+    },
+    {
+      "path": "resources/robots/g1_description/g1_23dof.xml",
+      "bytes": 21281,
+      "mode": "100644",
+      "sha256": "aaca282f79cc4cdd20fafa27656e766e35eb1455edb6f341165e27b137a036b6"
+    },
+    {
+      "path": "resources/robots/g1_description/g1_23dof_rev_1_0.urdf",
+      "bytes": 28789,
+      "mode": "100644",
+      "sha256": "cffe6149e0b29abed10b8c6a7e318003676ae4234224044e4af30946599d1ba9"
+    },
+    {
+      "path": "resources/robots/g1_description/g1_23dof_rev_1_0.xml",
+      "bytes": 20834,
+      "mode": "100644",
+      "sha256": "8ca62fcccdca91a431ca04f1a42f9c2fda241fdd5e13411168dc82de00f978de"
+    },
+    {
+      "path": "resources/robots/g1_description/g1_29dof.urdf",
+      "bytes": 37077,
+      "mode": "100644",
+      "sha256": "f055210bb33df3513a639573c6886ebd18f52fc70b507ef18930b51efb82cf2e"
+    },
+    {
+      "path": "resources/robots/g1_description/g1_29dof.xml",
+      "bytes": 26167,
+      "mode": "100644",
+      "sha256": "dfcfd8b41d0980695d0e75d76fdfd9965f71431a1c67afc31c8dbe730eb66c72"
+    },
+    {
+      "path": "resources/robots/g1_description/g1_29dof_lock_waist.urdf",
+      "bytes": 37082,
+      "mode": "100644",
+      "sha256": "fab272d6dae29d7800728a3085d88f2de9c325055472437e0bbbb10162cb1842"
+    },
+    {
+      "path": "resources/robots/g1_description/g1_29dof_lock_waist.xml",
+      "bytes": 25823,
+      "mode": "100644",
+      "sha256": "59791f27960982d9eb6164309fcd235561258181dd0ca510988a3f37444e59e4"
+    },
+    {
+      "path": "resources/robots/g1_description/g1_29dof_lock_waist_rev_1_0.urdf",
+      "bytes": 36232,
+      "mode": "100644",
+      "sha256": "81933055a580ed6085ee99028752b4e71c1dd2d6f2a0b4eeba0935a8009c8975"
+    },
+    {
+      "path": "resources/robots/g1_description/g1_29dof_lock_waist_rev_1_0.xml",
+      "bytes": 25476,
+      "mode": "100644",
+      "sha256": "cc65e483cbe1f2a74d8e66e32f44e5ecc758a6ab163f2e9deaaf84c5602113e3"
+    },
+    {
+      "path": "resources/robots/g1_description/g1_29dof_rev_1_0.urdf",
+      "bytes": 36227,
+      "mode": "100644",
+      "sha256": "824ce02c2c1e489aa8dece47a10fe02d1872289c0e6d01ba51abd291e66b7b2c"
+    },
+    {
+      "path": "resources/robots/g1_description/g1_29dof_rev_1_0.xml",
+      "bytes": 25820,
+      "mode": "100644",
+      "sha256": "165fa7a5275745e45fa25e1bc78010c1055d81bb81c013b3c7bc8b9347a3b9c3"
+    },
+    {
+      "path": "resources/robots/g1_description/g1_29dof_with_hand.urdf",
+      "bytes": 52744,
+      "mode": "100644",
+      "sha256": "1333b3e21acd2bea0810a36ffa39cf84f104f975e42b63b44e4ec652dbe488f9"
+    },
+    {
+      "path": "resources/robots/g1_description/g1_29dof_with_hand.xml",
+      "bytes": 38596,
+      "mode": "100644",
+      "sha256": "7b73b894c01c0be42eb8b7091ef9a3f94050b8243ebb25b4f2d3f387817b57bc"
+    },
+    {
+      "path": "resources/robots/g1_description/g1_29dof_with_hand_rev_1_0.urdf",
+      "bytes": 51894,
+      "mode": "100644",
+      "sha256": "cb5baa032952c8a18e6dfe084ec4fcee2c8be4624c9aacfeefecca24c9e1e9f3"
+    },
+    {
+      "path": "resources/robots/g1_description/g1_29dof_with_hand_rev_1_0.xml",
+      "bytes": 38249,
+      "mode": "100644",
+      "sha256": "77c98e7d34e428c6cdbd1e0d665e989cbc43bf17abb8a7c048494b4bc51ead88"
+    },
+    {
+      "path": "resources/robots/g1_description/g1_dual_arm.urdf",
+      "bytes": 22574,
+      "mode": "100644",
+      "sha256": "eec14dd634391d1c8c1e7d75d34df6bbecfe879b483472c06e5470e57d1504f6"
+    },
+    {
+      "path": "resources/robots/g1_description/g1_dual_arm.xml",
+      "bytes": 13488,
+      "mode": "100644",
+      "sha256": "741aa797dd1a58298f76da6980503fc9f47036ed21725742cbd4121eed230141"
+    },
+    {
+      "path": "resources/robots/g1_description/images/g1_23dof.png",
+      "bytes": 933725,
+      "mode": "100644",
+      "sha256": "8cd8db7c7abd7a7123cc1bc702e9a7aefb22ac18e8a5b52745b7b60cd371e1d3"
+    },
+    {
+      "path": "resources/robots/g1_description/images/g1_29dof.png",
+      "bytes": 942323,
+      "mode": "100644",
+      "sha256": "9d7d6c0755b6eadf2386d476cc64137f217f16ea2f7c8e0e06daf0d8e00e60ea"
+    },
+    {
+      "path": "resources/robots/g1_description/images/g1_29dof_with_hand.png",
+      "bytes": 943738,
+      "mode": "100644",
+      "sha256": "8f2a8f66138f13a2ce1e92b1155f16c2428ebcd59786b8e47a9099326ce7e969"
+    },
+    {
+      "path": "resources/robots/g1_description/images/g1_dual_arm.png",
+      "bytes": 847101,
+      "mode": "100644",
+      "sha256": "e8d427240c35ac5dd012a4bf4fc52dabe8bddd476a883ae9364d05fc3e8b85ee"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/head_link.STL",
+      "bytes": 932784,
+      "mode": "100644",
+      "sha256": "005fb67fbd3eff94aa8bf4a6e83238174e9f91b6721f7111594322f223724411"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/left_ankle_pitch_link.STL",
+      "bytes": 71184,
+      "mode": "100644",
+      "sha256": "d49e3abc6f5b12e532062cd575b87b5ef40cd2a3fc18f54a1ca5bba4f773d51d"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/left_ankle_roll_link.STL",
+      "bytes": 653384,
+      "mode": "100644",
+      "sha256": "c4092af943141d4d9f74232f3cfa345afc6565f46a077793b8ae0e68b39dc33f"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/left_elbow_link.STL",
+      "bytes": 88784,
+      "mode": "100644",
+      "sha256": "fa752198accd104d5c4c3a01382e45165b944fbbc5acce085059223324e5bed3"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/left_hand_index_0_link.STL",
+      "bytes": 475984,
+      "mode": "100644",
+      "sha256": "6b35f2f77211d5a366f0b9a4e47c4ee35e536731266f1a34e9efa12db579b892"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/left_hand_index_1_link.STL",
+      "bytes": 1521784,
+      "mode": "100644",
+      "sha256": "9e315ebc8a7a0cb98e033985b586b20d81cf8aa761181ae61ce56fcb14077a06"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/left_hand_middle_0_link.STL",
+      "bytes": 475984,
+      "mode": "100644",
+      "sha256": "6b35f2f77211d5a366f0b9a4e47c4ee35e536731266f1a34e9efa12db579b892"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/left_hand_middle_1_link.STL",
+      "bytes": 1521784,
+      "mode": "100644",
+      "sha256": "9e315ebc8a7a0cb98e033985b586b20d81cf8aa761181ae61ce56fcb14077a06"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/left_hand_palm_link.STL",
+      "bytes": 2140184,
+      "mode": "100644",
+      "sha256": "23a486b75bd78a9bf03cec25d84d87f97f3dae038cf21a743b6d469b337e4004"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/left_hand_thumb_0_link.STL",
+      "bytes": 8884,
+      "mode": "100644",
+      "sha256": "a90c721661c0622685488a3c74d1e122c7da89242d3a1daef75edb83422d05e0"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/left_hand_thumb_1_link.STL",
+      "bytes": 475984,
+      "mode": "100644",
+      "sha256": "445c54a45bc13ce36001556f66bc0f49c83cb40321205ae4d676bb2874325684"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/left_hand_thumb_2_link.STL",
+      "bytes": 1521784,
+      "mode": "100644",
+      "sha256": "3d8dbe5085acfc213d21aa8b0782e89cd79084e9678f3a85fc7b04a86b029db5"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/left_hip_pitch_link.STL",
+      "bytes": 181684,
+      "mode": "100644",
+      "sha256": "4725168105ee768ee31638ef22b53f6be2d7641bfd7cfefe803488d884776fa4"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/left_hip_roll_link.STL",
+      "bytes": 192184,
+      "mode": "100644",
+      "sha256": "91f25922ee8a7c3152790051bebad17b4d9cd243569c38fe340285ff93a97acf"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/left_hip_yaw_link.STL",
+      "bytes": 296284,
+      "mode": "100644",
+      "sha256": "a16d88aa6ddac8083aa7ad55ed317bea44b1fa003d314fba88965b7ed0f3b55b"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/left_knee_link.STL",
+      "bytes": 854884,
+      "mode": "100644",
+      "sha256": "8d92b9e3d3a636761150bb8025e32514c4602b91c7028d523ee42b3e632de477"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/left_rubber_hand.STL",
+      "bytes": 2287484,
+      "mode": "100644",
+      "sha256": "cff2221a690fa69303f61fce68f2d155c1517b52efb6ca9262dd56e0bc6e70fe"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/left_shoulder_pitch_link.STL",
+      "bytes": 176784,
+      "mode": "100644",
+      "sha256": "f0d1cfd02fcf0d42f95e678eeca33da3afbcc366ffba5c052847773ec4f31d52"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/left_shoulder_roll_link.STL",
+      "bytes": 400284,
+      "mode": "100644",
+      "sha256": "fb9df21687773522598dc384f1a2945c7519f11cbc8bd372a49170316d6eee88"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/left_shoulder_yaw_link.STL",
+      "bytes": 249184,
+      "mode": "100644",
+      "sha256": "1aa97e9748e924336567992181f78c7cd0652fd52a4afcca3df6b2ef6f9e712e"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/left_wrist_pitch_link.STL",
+      "bytes": 85984,
+      "mode": "100644",
+      "sha256": "b251d8e05047f695d0f536cd78c11973cfa4e78d08cfe82759336cc3471de3a9"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/left_wrist_roll_link.STL",
+      "bytes": 356184,
+      "mode": "100644",
+      "sha256": "edc387c9a0ba8c2237e9b296d32531426fabeb6f53e58df45c76106bca74148c"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/left_wrist_roll_rubber_hand.STL",
+      "bytes": 3484884,
+      "mode": "100644",
+      "sha256": "e81030abd023bd9e4a308ef376d814a2c12d684d8a7670c335bbd5cd7809c909"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/left_wrist_yaw_link.STL",
+      "bytes": 318684,
+      "mode": "100644",
+      "sha256": "83f8fb3a726bf9613d65dd14f0f447cb918c3c95b3938042a0c9c09749267d3b"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/logo_link.STL",
+      "bytes": 243384,
+      "mode": "100644",
+      "sha256": "8571a0a19bc4916fa55f91449f51d5fdefd751000054865a842449429d5f155b"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/pelvis.STL",
+      "bytes": 1060884,
+      "mode": "100644",
+      "sha256": "5ba6bbc888e630550140d3c26763f10206da8c8bd30ed886b8ede41c61f57a31"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/pelvis_contour_link.STL",
+      "bytes": 1805184,
+      "mode": "100644",
+      "sha256": "5cc5c2c7a312329e3feeb2b03d3fc09fc29705bd01864f6767e51be959662420"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/right_ankle_pitch_link.STL",
+      "bytes": 71184,
+      "mode": "100644",
+      "sha256": "15be426539ec1be70246d4d82a168806db64a41301af8b35c197a33348c787a9"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/right_ankle_roll_link.STL",
+      "bytes": 653784,
+      "mode": "100644",
+      "sha256": "4b66222ea56653e627711b56d0a8949b4920da5df091da0ceb343f54e884e3a5"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/right_elbow_link.STL",
+      "bytes": 88784,
+      "mode": "100644",
+      "sha256": "1be925d7aa268bb8fddf5362b9173066890c7d32092c05638608126e59d1e2ab"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/right_hand_index_0_link.STL",
+      "bytes": 475984,
+      "mode": "100644",
+      "sha256": "12ab4300c95e437e834f9aef772b3b431c671bf34338930b52ad11aef73bbd0d"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/right_hand_index_1_link.STL",
+      "bytes": 1521784,
+      "mode": "100644",
+      "sha256": "c9c34efce4563cacdcfd29fc838a982976d40f5442c71219811dcbbf3923a33d"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/right_hand_middle_0_link.STL",
+      "bytes": 475984,
+      "mode": "100644",
+      "sha256": "12ab4300c95e437e834f9aef772b3b431c671bf34338930b52ad11aef73bbd0d"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/right_hand_middle_1_link.STL",
+      "bytes": 1521784,
+      "mode": "100644",
+      "sha256": "c9c34efce4563cacdcfd29fc838a982976d40f5442c71219811dcbbf3923a33d"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/right_hand_palm_link.STL",
+      "bytes": 2140184,
+      "mode": "100644",
+      "sha256": "86c0b231cc44477d64a6493e5a427ba16617a00738112dd187c652675b086fb9"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/right_hand_thumb_0_link.STL",
+      "bytes": 8884,
+      "mode": "100644",
+      "sha256": "544298d0ea1088f5b276a10cc6a6a9e533efdd91594955fdc956c46211d07f83"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/right_hand_thumb_1_link.STL",
+      "bytes": 475984,
+      "mode": "100644",
+      "sha256": "0a9a820da8dd10f298778b714f1364216e8a5976f4fd3a05689ea26327d44bf6"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/right_hand_thumb_2_link.STL",
+      "bytes": 1521784,
+      "mode": "100644",
+      "sha256": "3f1bfb37668e8f61801c8d25f171fa1949e08666be86c67acad7e0079937cc45"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/right_hip_pitch_link.STL",
+      "bytes": 181284,
+      "mode": "100644",
+      "sha256": "e4f3c99d7f4a7d34eadbef9461fc66e3486cb5442db1ec50c86317d459f1a9c6"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/right_hip_roll_link.STL",
+      "bytes": 192684,
+      "mode": "100644",
+      "sha256": "4c254ef66a356f492947f360dd931965477b631e3fcc841f91ccc46d945d54f6"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/right_hip_yaw_link.STL",
+      "bytes": 296284,
+      "mode": "100644",
+      "sha256": "e479c2936ca2057e9eb2f7dff6c189b7419d7b8484dea0b298cbb36a2a6aa668"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/right_knee_link.STL",
+      "bytes": 852284,
+      "mode": "100644",
+      "sha256": "63c4008449c9bbe701a6e2b557b7a252e90cf3a5abcf54cee46862b9a69f8ec8"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/right_rubber_hand.STL",
+      "bytes": 2192684,
+      "mode": "100644",
+      "sha256": "99533b778bca6246144fa511bb9d4e555e075c641f2a0251e04372869cd99d67"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/right_shoulder_pitch_link.STL",
+      "bytes": 176784,
+      "mode": "100644",
+      "sha256": "24cdb387e0128dfe602770a81c56cdce3a0181d34d039a11d1aaf8819b7b8c02"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/right_shoulder_roll_link.STL",
+      "bytes": 401884,
+      "mode": "100644",
+      "sha256": "962b97c48f9ce9e8399f45dd9522e0865d19aa9fd299406b2d475a8fc4a53e81"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/right_shoulder_yaw_link.STL",
+      "bytes": 249984,
+      "mode": "100644",
+      "sha256": "a0b76489271da0c72461a344c9ffb0f0c6e64f019ea5014c1624886c442a2fe5"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/right_wrist_pitch_link.STL",
+      "bytes": 79584,
+      "mode": "100644",
+      "sha256": "d22f8f3b3127f15a63e5be1ee273cd5075786c3142f1c3d9f76cbf43d2a26477"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/right_wrist_roll_link.STL",
+      "bytes": 356084,
+      "mode": "100644",
+      "sha256": "a7ee9212ff5b94d6cb7f52bb1bbf3f352194d5b598acff74f4c77d340c5b344f"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/right_wrist_roll_rubber_hand.STL",
+      "bytes": 3481584,
+      "mode": "100644",
+      "sha256": "0729aff1ac4356f9314de13a46906267642e58bc47f0d8a7f17f6590a6242ccf"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/right_wrist_yaw_link.STL",
+      "bytes": 341484,
+      "mode": "100644",
+      "sha256": "bc9dece2d12509707e0057ba2e48df8f3d56db0c79410212963a25e8a50f61a6"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/torso_constraint_L_link.STL",
+      "bytes": 203584,
+      "mode": "100644",
+      "sha256": "82be7f93e85b3d303a1d1e1847e2c916939bd61c424ed1ebd28691ec33909dd1"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/torso_constraint_L_rod_link.STL",
+      "bytes": 74884,
+      "mode": "100644",
+      "sha256": "c10de1effa7ea797ac268006aa2a739036c7e1f326b2012d711ee2c20c5a6e96"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/torso_constraint_R_link.STL",
+      "bytes": 203584,
+      "mode": "100644",
+      "sha256": "54ded433a3a0c76027365856fdbd55215643de88846f7d436598a4071e682725"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/torso_constraint_R_rod_link.STL",
+      "bytes": 74884,
+      "mode": "100644",
+      "sha256": "cb83fd38a9f06c99e3f301c70f12d94ae770a8f0cf9501f83580a27f908990b4"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/torso_link.STL",
+      "bytes": 2232984,
+      "mode": "100644",
+      "sha256": "e96d023f0368a4e3450b86ca5d4f10227d8141156a373e7da8cb3c93266523e0"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/torso_link_23dof_rev_1_0.STL",
+      "bytes": 7825434,
+      "mode": "100644",
+      "sha256": "3cd0d56fde14b73c1623304684805029971c4f84b596f9914e823ca70a107fd2"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/torso_link_rev_1_0.STL",
+      "bytes": 2570584,
+      "mode": "100644",
+      "sha256": "11ddb46f2098efbbd8816b1d65893632d8e78be936376c7cdcd6771899ccc723"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/waist_constraint_L.STL",
+      "bytes": 114684,
+      "mode": "100644",
+      "sha256": "8ebafdcb4de6871113f0ca2c356618d6e46b1d50f6c0bf9e37f47b9d8e100d99"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/waist_constraint_R.STL",
+      "bytes": 114684,
+      "mode": "100644",
+      "sha256": "791902a291ffbd35ab97383b7b44ea5d975de7c80eef838797c970790b382ca9"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/waist_roll_link.STL",
+      "bytes": 24184,
+      "mode": "100644",
+      "sha256": "34f0aa73f41131230be4d25876c944fdf6c24d62553f199ff8b980c15e8913df"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/waist_roll_link_rev_1_0.STL",
+      "bytes": 85884,
+      "mode": "100644",
+      "sha256": "b67c347a05abc3e8ddae600d98a082bee273bb39f8e651647708b0a7140a8a97"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/waist_support_link.STL",
+      "bytes": 150484,
+      "mode": "100644",
+      "sha256": "1fae9e1bb609848a1667d32eed8d6083ae443538a306843056a2a660f1b2926a"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/waist_yaw_link.STL",
+      "bytes": 336284,
+      "mode": "100644",
+      "sha256": "2883f20e03f09b669b5b4ce10677ee6b5191c0934b584d7cbaef2d0662856ffb"
+    },
+    {
+      "path": "resources/robots/g1_description/meshes/waist_yaw_link_rev_1_0.STL",
+      "bytes": 619984,
+      "mode": "100644",
+      "sha256": "ec6db442b11f25eed898b5add07940c85d804f300de24dcbd264ccd8be7d554c"
+    },
+    {
+      "path": "resources/robots/g1_description/scene.xml",
+      "bytes": 859,
+      "mode": "100644",
+      "sha256": "482d49902ca2b9fdc49d84ef5d8779fa69d66bc53ef440b4bf50079d1bac9995"
+    },
+    {
+      "path": "resources/robots/go2/dae/base.dae",
+      "bytes": 10727399,
+      "mode": "100644",
+      "sha256": "e52bebbb5c7ff1f6aedee620c9b5b349f6e965360ecc63a9bb743eeff2d0be64"
+    },
+    {
+      "path": "resources/robots/go2/dae/calf.dae",
+      "bytes": 1125517,
+      "mode": "100644",
+      "sha256": "29872fa1a435b92bc2b395fdfa7f0aee26101db3c494681896bd4ef24ee7883c"
+    },
+    {
+      "path": "resources/robots/go2/dae/calf_mirror.dae",
+      "bytes": 1125457,
+      "mode": "100644",
+      "sha256": "79c66be7ed06760bd5001c067a1fb0ac517f639d8b1a5f89be471903b3f359e1"
+    },
+    {
+      "path": "resources/robots/go2/dae/foot.dae",
+      "bytes": 506988,
+      "mode": "100644",
+      "sha256": "ffbd95fd641866ce9bd277aa249b92dafc9148d70131fa2c52709a35ce5b710b"
+    },
+    {
+      "path": "resources/robots/go2/dae/hip.dae",
+      "bytes": 4666421,
+      "mode": "100644",
+      "sha256": "8735e10617afe252cef0844c1d139d15bc6d4c653660d742fea9fe05c2704d8f"
+    },
+    {
+      "path": "resources/robots/go2/dae/thigh.dae",
+      "bytes": 3884136,
+      "mode": "100644",
+      "sha256": "a622381ae308897ff143b8bbf02f075457c342b22984205040424a5a983246fa"
+    },
+    {
+      "path": "resources/robots/go2/dae/thigh_mirror.dae",
+      "bytes": 3896575,
+      "mode": "100644",
+      "sha256": "c7bae0b0565c2aa4b7cc15a538d795e9153e0f10c821cc18429e92693172bdc6"
+    },
+    {
+      "path": "resources/robots/go2/urdf/go2.urdf",
+      "bytes": 24170,
+      "mode": "100644",
+      "sha256": "4f306754e9b3d73930ac8362aa456eb8912f2e886665618e7eced9627c1704a4"
+    },
+    {
+      "path": "resources/robots/h1/h1.xml",
+      "bytes": 10982,
+      "mode": "100644",
+      "sha256": "2bee8abddbf4bc093bcdb2266c7139cd1c78e279bf65f7ee9fde41fe599900d4"
+    },
+    {
+      "path": "resources/robots/h1/meshes/left_ankle_link.STL",
+      "bytes": 129684,
+      "mode": "100644",
+      "sha256": "2d403f5414764e600af95d96eaee8ab7e49d2c7f75c1ae3dbbde052d4a14ffa1"
+    },
+    {
+      "path": "resources/robots/h1/meshes/left_elbow_link.STL",
+      "bytes": 258684,
+      "mode": "100644",
+      "sha256": "5ccf9bc83a751c1965b692e75534e57ee3c8a0916cbcff2ccccd8fe2b9d818d7"
+    },
+    {
+      "path": "resources/robots/h1/meshes/left_hip_pitch_link.STL",
+      "bytes": 452384,
+      "mode": "100644",
+      "sha256": "aa790c31ffc100cd182f2bf4480e7bfda675edc58ed8f361b6553a4975c9de3b"
+    },
+    {
+      "path": "resources/robots/h1/meshes/left_hip_roll_link.STL",
+      "bytes": 769284,
+      "mode": "100644",
+      "sha256": "8ed880cf1171e048cfe50489fe2546c32790ac0c24a2b3b4c560495401013552"
+    },
+    {
+      "path": "resources/robots/h1/meshes/left_hip_yaw_link.STL",
+      "bytes": 885884,
+      "mode": "100644",
+      "sha256": "103a854e684b84e1baba7d073822079069c64d0fa7b1592f29d38bd29f545bfb"
+    },
+    {
+      "path": "resources/robots/h1/meshes/left_knee_link.STL",
+      "bytes": 660384,
+      "mode": "100644",
+      "sha256": "efda8a6c54406c788102c0d6e59ea95e24114607bc2da9a2bf7f287ef7e48109"
+    },
+    {
+      "path": "resources/robots/h1/meshes/left_shoulder_pitch_link.STL",
+      "bytes": 787484,
+      "mode": "100644",
+      "sha256": "42e1db49464ca0f44f933114ee426e7f6d6310d20cf104bfa38b5ed4794cfab7"
+    },
+    {
+      "path": "resources/robots/h1/meshes/left_shoulder_roll_link.STL",
+      "bytes": 903384,
+      "mode": "100644",
+      "sha256": "8d3bcf767d72a9a5d7dae539eae79dc4132f0159b8803a6f6f2f9ad4b7e94d19"
+    },
+    {
+      "path": "resources/robots/h1/meshes/left_shoulder_yaw_link.STL",
+      "bytes": 644184,
+      "mode": "100644",
+      "sha256": "e22a5b53f8f307e6c5d6c17f9ceae4852c6468547a951cb39dfdec9ee414b515"
+    },
+    {
+      "path": "resources/robots/h1/meshes/logo_link.STL",
+      "bytes": 145484,
+      "mode": "100644",
+      "sha256": "ef9635c847ca7cd61aeaed86ad599935b648fb6f8688867c0448917b1811511b"
+    },
+    {
+      "path": "resources/robots/h1/meshes/pelvis.STL",
+      "bytes": 672884,
+      "mode": "100644",
+      "sha256": "dc2cbbeb07d3b63bce9fedeb8cf5252609dca1e89380734d22d5b3c8ded2f15c"
+    },
+    {
+      "path": "resources/robots/h1/meshes/right_ankle_link.STL",
+      "bytes": 129084,
+      "mode": "100644",
+      "sha256": "b39f5b3245926e935b9b37bdf25080d482d3be921aa5d70e01fe5f29ef70910a"
+    },
+    {
+      "path": "resources/robots/h1/meshes/right_elbow_link.STL",
+      "bytes": 258584,
+      "mode": "100644",
+      "sha256": "bc1b2aa33cffda279b3e6a40b5b932b86de9cce6c41f0c0d860b442e81edcdc2"
+    },
+    {
+      "path": "resources/robots/h1/meshes/right_hip_pitch_link.STL",
+      "bytes": 452384,
+      "mode": "100644",
+      "sha256": "3c0300dd96432f218857886007e9d4e8be038cd8b85e04e84a59df4de7f90476"
+    },
+    {
+      "path": "resources/robots/h1/meshes/right_hip_roll_link.STL",
+      "bytes": 768484,
+      "mode": "100644",
+      "sha256": "3e95b01b0a215e1d134545d4073cf7a72ab38ca33e35c606c03f1706d63588c6"
+    },
+    {
+      "path": "resources/robots/h1/meshes/right_hip_yaw_link.STL",
+      "bytes": 884484,
+      "mode": "100644",
+      "sha256": "10badbb0ac78e22fc220f421b1c919cfcf59406b412d78313e4b8b06cbc51e47"
+    },
+    {
+      "path": "resources/robots/h1/meshes/right_knee_link.STL",
+      "bytes": 662184,
+      "mode": "100644",
+      "sha256": "6183abbaef2afc775c220853e403b8479022a99954dbeef829b39d71916ddeda"
+    },
+    {
+      "path": "resources/robots/h1/meshes/right_shoulder_pitch_link.STL",
+      "bytes": 788484,
+      "mode": "100644",
+      "sha256": "850ffa7321993bfadcdb8bab1d422239f6a20abe27daa5ef99622f55d4da3217"
+    },
+    {
+      "path": "resources/robots/h1/meshes/right_shoulder_roll_link.STL",
+      "bytes": 908284,
+      "mode": "100644",
+      "sha256": "b9e793e351e09027d27427c06df2c1cb6b37c0205d0f68686b0d73916c6821de"
+    },
+    {
+      "path": "resources/robots/h1/meshes/right_shoulder_yaw_link.STL",
+      "bytes": 646884,
+      "mode": "100644",
+      "sha256": "0c9e4bec895f24c07fb2c4d132fc5e3cc7146155547267e9c270789af6567781"
+    },
+    {
+      "path": "resources/robots/h1/meshes/torso_link.STL",
+      "bytes": 2339384,
+      "mode": "100644",
+      "sha256": "3ab785cbfbd851b0e9c59a46871aabc4718f3f8e726e21a2d14360d217ec7ba8"
+    },
+    {
+      "path": "resources/robots/h1/scene.xml",
+      "bytes": 853,
+      "mode": "100644",
+      "sha256": "88ffcccad2c5df71a7472b4b30ec7e4ea06e045efc6b4e11ccd8bebc2848f0b3"
+    },
+    {
+      "path": "resources/robots/h1/urdf/h1.urdf",
+      "bytes": 26216,
+      "mode": "100644",
+      "sha256": "89c3824f471ec32060d0ffc702a13e296a7010d040a9e3a9c1f320706d42f4de"
+    },
+    {
+      "path": "resources/robots/h1_2/README.md",
+      "bytes": 5137,
+      "mode": "100644",
+      "sha256": "af713c4568b86a5d856c6466b2b678ca3dbfe5497162d9fe57cb3d98d38f836c"
+    },
+    {
+      "path": "resources/robots/h1_2/h1_2.png",
+      "bytes": 770756,
+      "mode": "100644",
+      "sha256": "c6d5ffdd02710b8f3492ec130c8bb4da3eddc91d036cf3fb9c8e69948c1d6e91"
+    },
+    {
+      "path": "resources/robots/h1_2/h1_2.urdf",
+      "bytes": 54434,
+      "mode": "100644",
+      "sha256": "41cc1d83394176a331a72bec6c0a8f1ed8588ff4efd0150d5fc3f8499d3b6cac"
+    },
+    {
+      "path": "resources/robots/h1_2/h1_2.xml",
+      "bytes": 41031,
+      "mode": "100644",
+      "sha256": "2f90ed064e28ed5c8e6c3ea0ffc5b0db50db285299c46624e35247864c6eab36"
+    },
+    {
+      "path": "resources/robots/h1_2/h1_2_12dof.urdf",
+      "bytes": 47721,
+      "mode": "100644",
+      "sha256": "880ec87187c2f6c929d234620164e338fcb1928ab0dbd298921875c75b92b48a"
+    },
+    {
+      "path": "resources/robots/h1_2/h1_2_12dof.xml",
+      "bytes": 32914,
+      "mode": "100644",
+      "sha256": "0e6179b89820f5de46cdffee25211e37a21af82fb0ab21845a939d53fc313598"
+    },
+    {
+      "path": "resources/robots/h1_2/h1_2_simplified.urdf",
+      "bytes": 47829,
+      "mode": "100644",
+      "sha256": "c896e501532def4432b57d2d8368d117908dfb49e72c3c52fc06f450ffb466d3"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/L_hand_base_link.STL",
+      "bytes": 1448084,
+      "mode": "100644",
+      "sha256": "33ab4e97801bd5421903a78f5977a44e477ae8653eaf32358d35633e465411e0"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/L_index_intermediate.STL",
+      "bytes": 329384,
+      "mode": "100644",
+      "sha256": "7d8508c65db44e2349f37e8ab4c057d204a40093d4733897ae5b51075b00f5e9"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/L_index_proximal.STL",
+      "bytes": 407184,
+      "mode": "100644",
+      "sha256": "8c601e7aa8e1c91310a75190dfb6b95a8dc981b707e5f104f9ca9ecbea118b34"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/L_middle_intermediate.STL",
+      "bytes": 182684,
+      "mode": "100644",
+      "sha256": "9425aea7ebbf6d1dfb2eb0714fb44dfaea6b6a81c71d6e96c8d3950f636dfa62"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/L_middle_proximal.STL",
+      "bytes": 407184,
+      "mode": "100644",
+      "sha256": "ca2a68fed635eca290b234fbdc649779036ba5bac753addcb7ce6a086ad95949"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/L_pinky_intermediate.STL",
+      "bytes": 413384,
+      "mode": "100644",
+      "sha256": "5e64ea976ecf08c46e8cb80a5dd56ee3e8c5f36a0573ab3c69160d9337f941e1"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/L_pinky_proximal.STL",
+      "bytes": 407184,
+      "mode": "100644",
+      "sha256": "180ab4ac01dab60407d0b33819883eb0ec869e4d4f349f786972135c7114fc0d"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/L_ring_intermediate.STL",
+      "bytes": 329484,
+      "mode": "100644",
+      "sha256": "e9145af7a515bce4c1c06d16b5be8900ec3f8375fc8e34d371315ce76f600877"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/L_ring_proximal.STL",
+      "bytes": 407184,
+      "mode": "100644",
+      "sha256": "cbb256a70c17e21c995df66807f0755dc136d0312df245112d6d4bfcd29c43a4"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/L_thumb_distal.STL",
+      "bytes": 155184,
+      "mode": "100644",
+      "sha256": "b677bcdcddcd90ff4b005f83daa9e50eb4003d5e67ea4eeefbf857718716c164"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/L_thumb_intermediate.STL",
+      "bytes": 488584,
+      "mode": "100644",
+      "sha256": "7e93b55f2ae73fe0f62cd27e81d8a4620211068cb1c9b25e6414e802a37541ee"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/L_thumb_proximal.STL",
+      "bytes": 917284,
+      "mode": "100644",
+      "sha256": "9f35b78a9cab1007ac8b73023a5862ed055d33951b5742f9a783997d38e99551"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/L_thumb_proximal_base.STL",
+      "bytes": 46584,
+      "mode": "100644",
+      "sha256": "d87cb704d80de840555d0a393117d32f9bd5e91425e0458363e0a799aa4e5339"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/R_hand_base_link.STL",
+      "bytes": 1472384,
+      "mode": "100644",
+      "sha256": "b4d84504242a99fa915c4ed5195ce4724c67cb94d9217cd4c254cfb5937ecf5c"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/R_index_intermediate.STL",
+      "bytes": 335484,
+      "mode": "100644",
+      "sha256": "6942ada1189cdf442124c6b8935f3e3a3ae310092a3a1414fdeb0bd6d23578bb"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/R_index_proximal.STL",
+      "bytes": 411884,
+      "mode": "100644",
+      "sha256": "09c120f7fb7761aa97d89240cd8cb8e30c40ee60093cbb8b1c2e13a68a8e3845"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/R_middle_intermediate.STL",
+      "bytes": 182984,
+      "mode": "100644",
+      "sha256": "9711fac7df0c09a372e1529f74b9d506d37abf3ebc3241d976ad45e5ee7e2d69"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/R_middle_proximal.STL",
+      "bytes": 411884,
+      "mode": "100644",
+      "sha256": "36fc62c609800ce6d4521ae6f3c4c9b8a732be28654f32f04893696c17e6930c"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/R_pinky_intermediate.STL",
+      "bytes": 416484,
+      "mode": "100644",
+      "sha256": "1aa3fb46f689251ee38f5262b71364c680f70d1ad1dd9c6f1cae8c098b0e8422"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/R_pinky_proximal.STL",
+      "bytes": 411884,
+      "mode": "100644",
+      "sha256": "ed0a29d2376e8874f724bc2c20384eeec93d8268e59bb8c45628335f7ab6742e"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/R_ring_intermediate.STL",
+      "bytes": 334784,
+      "mode": "100644",
+      "sha256": "a517debff6b924c22ae0f87dbb6aac199a1f130c7fef353a7d659e365f30b1f4"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/R_ring_proximal.STL",
+      "bytes": 411884,
+      "mode": "100644",
+      "sha256": "46619bd6a887615d7dfe850d39a6f5d8f8c5ecfa9429c567338f3a659a5d4d75"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/R_thumb_distal.STL",
+      "bytes": 155584,
+      "mode": "100644",
+      "sha256": "564aa8c3d2ff0e51b75736a8b01b4c309c7098582a424ea1391ccb75125519d8"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/R_thumb_intermediate.STL",
+      "bytes": 483284,
+      "mode": "100644",
+      "sha256": "c157dfe5b666efb1c3d51342e56f5caad2fc350930ac21ee1e02d956c1034ca3"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/R_thumb_proximal.STL",
+      "bytes": 921984,
+      "mode": "100644",
+      "sha256": "347212bdb22d80fb364dd889de934d6fbb935e38d1f24c682caed84f7b6ea8cb"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/R_thumb_proximal_base.STL",
+      "bytes": 46884,
+      "mode": "100644",
+      "sha256": "b49b6463f801f0402bac9c65bb989c4097f6d2c1fa1597ba560aedd640561778"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/left_ankle_A_link.STL",
+      "bytes": 141984,
+      "mode": "100644",
+      "sha256": "d995ff3e113813202becb65f271200c8cbdb035b2a039a8d1303d482bacc4614"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/left_ankle_A_rod_link.STL",
+      "bytes": 44484,
+      "mode": "100644",
+      "sha256": "25955cff955d93b01923258de3a41274a08a3450f959547dcc842a9bc47472bd"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/left_ankle_B_link.STL",
+      "bytes": 141984,
+      "mode": "100644",
+      "sha256": "ed6032a7dc84035da66dd70d19e8883e8d9b2c8aad0ac5e909d0ced55614bbb8"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/left_ankle_B_rod_link.STL",
+      "bytes": 37884,
+      "mode": "100644",
+      "sha256": "79e94994c8397293926ce2f5440f252092ac1e921fd65e2459605564e7557270"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/left_ankle_pitch_link.STL",
+      "bytes": 34084,
+      "mode": "100644",
+      "sha256": "24afc967dfcc867632d756dedff7aa78157c8fdb756a85a3f2a24dde5e5e1d34"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/left_ankle_roll_link.STL",
+      "bytes": 200484,
+      "mode": "100644",
+      "sha256": "d27424a8eab6e4aa469bce2bdcdd349892a855913f388b7908fdac121a58b7eb"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/left_elbow_pitch_link.STL",
+      "bytes": 1287684,
+      "mode": "100644",
+      "sha256": "e4b22883f24bff1f2f6c259dd4ff44b8e00504e2b2dc6b2993021cc7985d81f3"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/left_elbow_roll_link.STL",
+      "bytes": 1243084,
+      "mode": "100644",
+      "sha256": "a9e5f7c5214f584a91543d0ddfac50331ac8d6316c133140cd1d2397ae23ec50"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/left_hand_link.STL",
+      "bytes": 147684,
+      "mode": "100644",
+      "sha256": "8bdf9e424ffcad03646a354fe5a4a08515e523c081070afabcadc9f5f03132e1"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/left_hip_pitch_link.STL",
+      "bytes": 1270184,
+      "mode": "100644",
+      "sha256": "76c2f4824fb656da98f0b26c7f39f39fb0f52fbfe381bfc8bad13673d4688b92"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/left_hip_roll_link.STL",
+      "bytes": 383184,
+      "mode": "100644",
+      "sha256": "51aa6f60d69c6dc5fa7adc60ba4927b6215820dd635b8add09e4b9faf8037bfb"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/left_hip_yaw_link.STL",
+      "bytes": 834984,
+      "mode": "100644",
+      "sha256": "02d63215d895626a21eb7a1742699569441dcdb2c7c5f714726b365158dd3cbc"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/left_knee_link.STL",
+      "bytes": 212384,
+      "mode": "100644",
+      "sha256": "3da90b2f6ff1d5df395ab4cd6955fd29bc2d713107c0e05405c983f0c6ac8689"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/left_shoulder_pitch_link.STL",
+      "bytes": 1968984,
+      "mode": "100644",
+      "sha256": "c4193b4640d0c1812d91806547a2473f111e6af9f4bb036fcfd98dedace4d755"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/left_shoulder_roll_link.STL",
+      "bytes": 1993784,
+      "mode": "100644",
+      "sha256": "598d50298bbf041202ace731e5dc892e3ef179cb1068cb95861161cf63db6f1b"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/left_shoulder_yaw_link.STL",
+      "bytes": 2137684,
+      "mode": "100644",
+      "sha256": "3e760b25bd805395132adeffb7916ad43b07e4e5caaf3a7f732987e19dd9d767"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/left_wrist_pitch_link.STL",
+      "bytes": 630184,
+      "mode": "100644",
+      "sha256": "b7bb3eaf1213e27d3ee7d4193a0f0974823ae61c821ff1ec34459d65b7e39583"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/link11_L.STL",
+      "bytes": 46584,
+      "mode": "100644",
+      "sha256": "d87cb704d80de840555d0a393117d32f9bd5e91425e0458363e0a799aa4e5339"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/link11_R.STL",
+      "bytes": 46884,
+      "mode": "100644",
+      "sha256": "b49b6463f801f0402bac9c65bb989c4097f6d2c1fa1597ba560aedd640561778"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/link12_L.STL",
+      "bytes": 917284,
+      "mode": "100644",
+      "sha256": "9f35b78a9cab1007ac8b73023a5862ed055d33951b5742f9a783997d38e99551"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/link12_R.STL",
+      "bytes": 921984,
+      "mode": "100644",
+      "sha256": "347212bdb22d80fb364dd889de934d6fbb935e38d1f24c682caed84f7b6ea8cb"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/link13_L.STL",
+      "bytes": 488584,
+      "mode": "100644",
+      "sha256": "7e93b55f2ae73fe0f62cd27e81d8a4620211068cb1c9b25e6414e802a37541ee"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/link13_R.STL",
+      "bytes": 483284,
+      "mode": "100644",
+      "sha256": "c157dfe5b666efb1c3d51342e56f5caad2fc350930ac21ee1e02d956c1034ca3"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/link14_L.STL",
+      "bytes": 155184,
+      "mode": "100644",
+      "sha256": "b677bcdcddcd90ff4b005f83daa9e50eb4003d5e67ea4eeefbf857718716c164"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/link14_R.STL",
+      "bytes": 155584,
+      "mode": "100644",
+      "sha256": "564aa8c3d2ff0e51b75736a8b01b4c309c7098582a424ea1391ccb75125519d8"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/link15_L.STL",
+      "bytes": 407184,
+      "mode": "100644",
+      "sha256": "8c601e7aa8e1c91310a75190dfb6b95a8dc981b707e5f104f9ca9ecbea118b34"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/link15_R.STL",
+      "bytes": 411884,
+      "mode": "100644",
+      "sha256": "09c120f7fb7761aa97d89240cd8cb8e30c40ee60093cbb8b1c2e13a68a8e3845"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/link16_L.STL",
+      "bytes": 329384,
+      "mode": "100644",
+      "sha256": "7d8508c65db44e2349f37e8ab4c057d204a40093d4733897ae5b51075b00f5e9"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/link16_R.STL",
+      "bytes": 335484,
+      "mode": "100644",
+      "sha256": "6942ada1189cdf442124c6b8935f3e3a3ae310092a3a1414fdeb0bd6d23578bb"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/link17_L.STL",
+      "bytes": 407184,
+      "mode": "100644",
+      "sha256": "ca2a68fed635eca290b234fbdc649779036ba5bac753addcb7ce6a086ad95949"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/link17_R.STL",
+      "bytes": 411884,
+      "mode": "100644",
+      "sha256": "36fc62c609800ce6d4521ae6f3c4c9b8a732be28654f32f04893696c17e6930c"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/link18_L.STL",
+      "bytes": 182684,
+      "mode": "100644",
+      "sha256": "9425aea7ebbf6d1dfb2eb0714fb44dfaea6b6a81c71d6e96c8d3950f636dfa62"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/link18_R.STL",
+      "bytes": 182984,
+      "mode": "100644",
+      "sha256": "9711fac7df0c09a372e1529f74b9d506d37abf3ebc3241d976ad45e5ee7e2d69"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/link19_L.STL",
+      "bytes": 407184,
+      "mode": "100644",
+      "sha256": "cbb256a70c17e21c995df66807f0755dc136d0312df245112d6d4bfcd29c43a4"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/link19_R.STL",
+      "bytes": 411884,
+      "mode": "100644",
+      "sha256": "46619bd6a887615d7dfe850d39a6f5d8f8c5ecfa9429c567338f3a659a5d4d75"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/link20_L.STL",
+      "bytes": 329484,
+      "mode": "100644",
+      "sha256": "e9145af7a515bce4c1c06d16b5be8900ec3f8375fc8e34d371315ce76f600877"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/link20_R.STL",
+      "bytes": 334784,
+      "mode": "100644",
+      "sha256": "a517debff6b924c22ae0f87dbb6aac199a1f130c7fef353a7d659e365f30b1f4"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/link21_L.STL",
+      "bytes": 407184,
+      "mode": "100644",
+      "sha256": "180ab4ac01dab60407d0b33819883eb0ec869e4d4f349f786972135c7114fc0d"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/link21_R.STL",
+      "bytes": 411884,
+      "mode": "100644",
+      "sha256": "ed0a29d2376e8874f724bc2c20384eeec93d8268e59bb8c45628335f7ab6742e"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/link22_L.STL",
+      "bytes": 413384,
+      "mode": "100644",
+      "sha256": "5e64ea976ecf08c46e8cb80a5dd56ee3e8c5f36a0573ab3c69160d9337f941e1"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/link22_R.STL",
+      "bytes": 416484,
+      "mode": "100644",
+      "sha256": "1aa3fb46f689251ee38f5262b71364c680f70d1ad1dd9c6f1cae8c098b0e8422"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/logo_link.STL",
+      "bytes": 145484,
+      "mode": "100644",
+      "sha256": "ef9635c847ca7cd61aeaed86ad599935b648fb6f8688867c0448917b1811511b"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/pelvis.STL",
+      "bytes": 672884,
+      "mode": "100644",
+      "sha256": "dc2cbbeb07d3b63bce9fedeb8cf5252609dca1e89380734d22d5b3c8ded2f15c"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/right_ankle_A_link.STL",
+      "bytes": 141984,
+      "mode": "100644",
+      "sha256": "8cf3254c0d25a1c7587657ba52ebd8891585c38061d06e06d37881998b0420a0"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/right_ankle_A_rod_link.STL",
+      "bytes": 44484,
+      "mode": "100644",
+      "sha256": "7fba7ee11152d603a2ab9bcfc19be7e316602b6d8b60ebdb827169ed31be7cfb"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/right_ankle_B_link.STL",
+      "bytes": 141984,
+      "mode": "100644",
+      "sha256": "d514277f5a03c6fbd1a0aa7c99a9d0c3f91c07dcb121481c1524806aa74917b9"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/right_ankle_B_rod_link.STL",
+      "bytes": 37884,
+      "mode": "100644",
+      "sha256": "004c1a6a6057e8d87f89f47ac2230e68f0e6278bfbdb1b0466bb242aa1f7245f"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/right_ankle_link.STL",
+      "bytes": 439484,
+      "mode": "100644",
+      "sha256": "4af30aca229a4465b2249d298ebd67d5859a2eeade8c2015035e9c0deb06a33a"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/right_ankle_pitch_link.STL",
+      "bytes": 34084,
+      "mode": "100644",
+      "sha256": "24afc967dfcc867632d756dedff7aa78157c8fdb756a85a3f2a24dde5e5e1d34"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/right_ankle_roll_link.STL",
+      "bytes": 200484,
+      "mode": "100644",
+      "sha256": "d27424a8eab6e4aa469bce2bdcdd349892a855913f388b7908fdac121a58b7eb"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/right_elbow_pitch_link.STL",
+      "bytes": 1286984,
+      "mode": "100644",
+      "sha256": "92a70241128492294eeb26189697335d11a3535c361c461bafb6a190dda6e4a0"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/right_elbow_roll_link.STL",
+      "bytes": 1242984,
+      "mode": "100644",
+      "sha256": "d06e2e62f80ceef841a88055da884fade9235f21b66e272fc51331367a5ea174"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/right_hand_link.STL",
+      "bytes": 147684,
+      "mode": "100644",
+      "sha256": "8bdf9e424ffcad03646a354fe5a4a08515e523c081070afabcadc9f5f03132e1"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/right_hip_pitch_link.STL",
+      "bytes": 1264684,
+      "mode": "100644",
+      "sha256": "62083be6d39df68a4899787a314664a6a4f018c6892da9d2aace0ff9d4dede51"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/right_hip_roll_link.STL",
+      "bytes": 386484,
+      "mode": "100644",
+      "sha256": "1d679aad297f168531ece085b56980c0f6c1820f9992e849ff2bbd40506c05f0"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/right_hip_yaw_link.STL",
+      "bytes": 840384,
+      "mode": "100644",
+      "sha256": "9a88980120a954339419747e44f81662b943288bffd31bdac9b96fca9c8aaf50"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/right_knee_link.STL",
+      "bytes": 212384,
+      "mode": "100644",
+      "sha256": "3da90b2f6ff1d5df395ab4cd6955fd29bc2d713107c0e05405c983f0c6ac8689"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/right_pitch_link.STL",
+      "bytes": 338384,
+      "mode": "100644",
+      "sha256": "27646e67d803c67cd289f53fc6a897ee9bf10b6a273df5e4d00f26b1bf45b496"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/right_shoulder_pitch_link.STL",
+      "bytes": 1966084,
+      "mode": "100644",
+      "sha256": "e3c2e433a8f8706217e68d677cc62b0c7f605ce43d516713be94a285a0124cdc"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/right_shoulder_roll_link.STL",
+      "bytes": 2015084,
+      "mode": "100644",
+      "sha256": "5cd93c255c14f16b6265131c5beaa015fc3e00a6cf80041a0be44d3ec55b8d9c"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/right_shoulder_yaw_link.STL",
+      "bytes": 2158684,
+      "mode": "100644",
+      "sha256": "547b3c72bfbded71c974c34d128b93b491c36a3af780afff6c3a3684277688cb"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/right_wrist_pitch_link.STL",
+      "bytes": 630184,
+      "mode": "100644",
+      "sha256": "11624373f44c3ac8fcccd09abbb2f5eb9490413a41fb0a9f3de71a01509c05ec"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/torso_link.STL",
+      "bytes": 2122084,
+      "mode": "100644",
+      "sha256": "cff9af548d3997aa44167864115ad0564e6e4f8f42dbcad114f1c88029faf0e2"
+    },
+    {
+      "path": "resources/robots/h1_2/meshes/wrist_yaw_link.STL",
+      "bytes": 53284,
+      "mode": "100644",
+      "sha256": "a8bf30a2ab2358e0b023de02436d1ab94de959a169c88a2cf0e4bfaacde7c7b3"
+    },
+    {
+      "path": "resources/robots/h1_2/scene.xml",
+      "bytes": 861,
+      "mode": "100644",
+      "sha256": "40c8d9e5dca3ceb5942b9230f1de9aa36e0187c1907f2b5f6bd584fbc8f7b909"
+    },
+    {
+      "path": "resources/robots/lite3/LICENSE.txt",
+      "bytes": 1502,
+      "mode": "100644",
+      "sha256": "6bc5967b1cfbdb83b0798942a5f11d4e0555ad8de17697bd4d7eaab6e22f9be5"
+    },
+    {
+      "path": "resources/robots/lite3/SOURCE.md",
+      "bytes": 671,
+      "mode": "100644",
+      "sha256": "b5cf0fb50ddf287df15756ecf4fedadeba06406d594888abdccb0196f79810ea"
+    },
+    {
+      "path": "resources/robots/lite3/urdf/Lite3.urdf",
+      "bytes": 15495,
+      "mode": "100644",
+      "sha256": "ff71ca27f756fb465f8d17e463c71b03b16dc3bb50e981f587a6d61b85c06fca"
+    },
+    {
+      "path": "resources/robots/lite3/urdf/meshes/hip.STL",
+      "bytes": 326084,
+      "mode": "100644",
+      "sha256": "3386fa94992dbfc4d3e06c6d9fb110e2c4abd87f94c3ac766fdcce85c43341f3"
+    },
+    {
+      "path": "resources/robots/lite3/urdf/meshes/shank.STL",
+      "bytes": 1352184,
+      "mode": "100644",
+      "sha256": "5410bae3b9b1e9fbc30343041450a80fc609806c2a83418bd2288b0720aec098"
+    },
+    {
+      "path": "resources/robots/lite3/urdf/meshes/thigh.STL",
+      "bytes": 499284,
+      "mode": "100644",
+      "sha256": "f29ea97407a9a30cb4549206d080848350d8b455bf4b9a63441241cdacab1719"
+    },
+    {
+      "path": "resources/robots/lite3/urdf/meshes/torso.STL",
+      "bytes": 1318334,
+      "mode": "100644",
+      "sha256": "6f3f5fc4b9985db56d741ac1b6b93e11d9fb283eb128f8800ad9603772bbcda2"
+    },
+    {
+      "path": "rsl_rl/.gitignore",
+      "bytes": 87,
+      "mode": "100644",
+      "sha256": "17305411fc360ae558fb5afbba0a66fd3244c5345aa4a3a289cb3cda1ada6de4"
+    },
+    {
+      "path": "rsl_rl/LICENSE",
+      "bytes": 1645,
+      "mode": "100644",
+      "sha256": "8b4a99b53e3eb96dafc69fe08b2c9b0242512fa9fa508e735217f1d06798d35f"
+    },
+    {
+      "path": "rsl_rl/PIE_EXTENSION.md",
+      "bytes": 3230,
+      "mode": "100644",
+      "sha256": "1201ab4ee0dea8d54209bab8e16a1bb342716f2c2f7d456f611fadbadf23032d"
+    },
+    {
+      "path": "rsl_rl/README.md",
+      "bytes": 675,
+      "mode": "100644",
+      "sha256": "20f847f9881c50e922cd7395f998df1de0ab04d4848f8526dd5ba76c274b087b"
+    },
+    {
+      "path": "rsl_rl/licenses/dependencies/numpy_license.txt",
+      "bytes": 1542,
+      "mode": "100644",
+      "sha256": "a646829968cf88f9597ba02682571a060f3a8dd2e2dcc45290e67b088663c392"
+    },
+    {
+      "path": "rsl_rl/licenses/dependencies/torch_license.txt",
+      "bytes": 3206,
+      "mode": "100644",
+      "sha256": "e0a8cbc8d9a8b6b748ff8b7816a14752143312905b5670a23cd005026a9010f3"
+    },
+    {
+      "path": "rsl_rl/rsl_rl/__init__.py",
+      "bytes": 1661,
+      "mode": "100644",
+      "sha256": "5c70c5a865ae3a49f5201bfc873678548b69f3b0ddec4d00bcf8bf28bb24f33d"
+    },
+    {
+      "path": "rsl_rl/rsl_rl/algorithms/__init__.py",
+      "bytes": 1723,
+      "mode": "100644",
+      "sha256": "32dd3e2e0ad1cd6bf9c671a37e00ed99312cf6e19e077f143e0a32140961007d"
+    },
+    {
+      "path": "rsl_rl/rsl_rl/algorithms/ppo.py",
+      "bytes": 9027,
+      "mode": "100644",
+      "sha256": "33d531858767e49bbffce8030ac2879a30a00a64caeef0f87502285fa15301cd"
+    },
+    {
+      "path": "rsl_rl/rsl_rl/algorithms/ppo_pie.py",
+      "bytes": 9457,
+      "mode": "100644",
+      "sha256": "ade765ec4cee04dbb69f1f301dc9bd4274eae8f3df6109106725f340ef08af95"
+    },
+    {
+      "path": "rsl_rl/rsl_rl/env/__init__.py",
+      "bytes": 1690,
+      "mode": "100644",
+      "sha256": "b4c617f8535f521496d62b4b057e6523a6d2f83520e3c0ce3a0c2ee0ef028b5c"
+    },
+    {
+      "path": "rsl_rl/rsl_rl/env/vec_env.py",
+      "bytes": 2574,
+      "mode": "100644",
+      "sha256": "6e8f46bec6a4081f4248f010bf5641f71b51cdbaa0282bce76e6ef5580caace7"
+    },
+    {
+      "path": "rsl_rl/rsl_rl/modules/__init__.py",
+      "bytes": 1816,
+      "mode": "100644",
+      "sha256": "d940ac61ee653bd50b0ae33724bf7c37926b42695f4cd79141a6028b4bf7fce4"
+    },
+    {
+      "path": "rsl_rl/rsl_rl/modules/actor_critic.py",
+      "bytes": 5903,
+      "mode": "100644",
+      "sha256": "7113dd5cfcc8a7220400b50e07a33fd7261cea31c781728156051ea36af0b991"
+    },
+    {
+      "path": "rsl_rl/rsl_rl/modules/actor_critic_pie.py",
+      "bytes": 12857,
+      "mode": "100644",
+      "sha256": "af82e89367b21ff8cf079127ca2a63f047550f2abd5f55921cf10a769f6e6a49"
+    },
+    {
+      "path": "rsl_rl/rsl_rl/modules/actor_critic_recurrent.py",
+      "bytes": 5301,
+      "mode": "100644",
+      "sha256": "db5eeb05c963e5ab61829b076a7360ce9441deb0441cca7e08d214623cadce3c"
+    },
+    {
+      "path": "rsl_rl/rsl_rl/runners/__init__.py",
+      "bytes": 1774,
+      "mode": "100644",
+      "sha256": "09763c5b483d33839e045d706fa68681cde34a868ecdd342d2e7b7e565665029"
+    },
+    {
+      "path": "rsl_rl/rsl_rl/runners/on_policy_runner.py",
+      "bytes": 12573,
+      "mode": "100644",
+      "sha256": "7daeaddb9f2945fb385d28b1ceffb689838b0068b447f72e26d73c25747a079a"
+    },
+    {
+      "path": "rsl_rl/rsl_rl/runners/on_policy_runner_pie.py",
+      "bytes": 9647,
+      "mode": "100644",
+      "sha256": "51f712b694fd299d628a7aca3a0e543ca7979b27359698f96f1d453d13cc7aa8"
+    },
+    {
+      "path": "rsl_rl/rsl_rl/storage/__init__.py",
+      "bytes": 186,
+      "mode": "100644",
+      "sha256": "95bad12e259b3c754404aa239366b80a3026715561f2e7094c433a935420d990"
+    },
+    {
+      "path": "rsl_rl/rsl_rl/storage/rollout_storage.py",
+      "bytes": 12165,
+      "mode": "100644",
+      "sha256": "0ad19bda4b39f06b869426a70462d438a46fdbffcf91d21a247eb203c049128e"
+    },
+    {
+      "path": "rsl_rl/rsl_rl/storage/rollout_storage_pie.py",
+      "bytes": 3792,
+      "mode": "100644",
+      "sha256": "02882832355138e2800cf00cfea0f5d55c940fbd2f0f8b54034b3275b4b45308"
+    },
+    {
+      "path": "rsl_rl/rsl_rl/utils/__init__.py",
+      "bytes": 1728,
+      "mode": "100644",
+      "sha256": "6a29eb8996bfc2a2d799282851f6d23fbe446a9e743ad1aeb8031026c101183c"
+    },
+    {
+      "path": "rsl_rl/rsl_rl/utils/utils.py",
+      "bytes": 3775,
+      "mode": "100644",
+      "sha256": "c883c535b2a7eda3ffdc2200505a4ae36dc12cdcf9fc6d306eb2b30f64f202fc"
+    },
+    {
+      "path": "rsl_rl/setup.py",
+      "bytes": 454,
+      "mode": "100644",
+      "sha256": "f18f93caa60fd8cc822d93e7e8f07905bad628a05d6bfaca1cd50c5d25e4ee11"
+    },
+    {
+      "path": "setup.py",
+      "bytes": 514,
+      "mode": "100644",
+      "sha256": "39c41a365c4e7b56f85cbcbe04b6b27706ba47575049b4e334816541871555e4"
+    },
+    {
+      "path": "tests/test_learning.py",
+      "bytes": 7587,
+      "mode": "100644",
+      "sha256": "4754ef7e31a1e28f2533030745e0723dae50547f6b81fac5592a24c605ab92e9"
+    },
+    {
+      "path": "tests/test_terrain_and_assets.py",
+      "bytes": 2390,
+      "mode": "100644",
+      "sha256": "2273ce9122af1cf2991bc4f96d69f8e80b430d42b94a4036a9122bf4303aec7a"
+    }
+  ],
+  "vendored_rsl_rl": {
+    "upstream": "https://github.com/leggedrobotics/rsl_rl.git",
+    "tag": "v1.0.2",
+    "commit": "2ad79cf0caa85b91721abfe358105f869a784121"
+  }
+}

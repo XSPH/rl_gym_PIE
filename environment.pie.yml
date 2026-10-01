@@ -1,0 +1,21 @@
+name: pie-isaacgym
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+dependencies:
+  - python=3.8
+  - pip
+  - numpy=1.23.5
+  - pytorch=2.4.1
+  - pytorch-cuda=12.1
+  - pip:
+      - warp-lang==1.6.2
+      - pytest>=7,<9
+# Isaac Gym Preview 4 is separately installed from NVIDIA's archive into THIS env.
+# Install the modified project-local rsl_rl v1.0.2 after creating this env:
+# cd unitree_rl_gym
+# python -s -m pip install --no-deps --no-build-isolation -e ./rsl_rl
+# python -s -m pip install --no-deps --no-build-isolation -e .
+variables:
+  PYTHONNOUSERSITE: "1"
