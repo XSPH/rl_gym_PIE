@@ -122,6 +122,7 @@ class TaskRegistry():
             rollout_steps = getattr(args, "rollout_steps", None)
             pie_cfg = PIERunnerCfg(seed=train_cfg.seed,
                 max_iterations=train_cfg.runner.max_iterations,
+                save_interval=train_cfg.runner.save_interval,
                 num_steps_per_env=train_cfg.runner.num_steps_per_env if rollout_steps is None else rollout_steps,
                 model=train_cfg.pie_model, ppo=train_cfg.pie_ppo)
             log_dir = getattr(args, "output_dir", None) or log_dir

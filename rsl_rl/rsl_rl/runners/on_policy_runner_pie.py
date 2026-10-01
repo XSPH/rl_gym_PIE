@@ -10,10 +10,11 @@ from rsl_rl.algorithms.ppo_pie import PPOConfig
 
 @dataclass
 class PIERunnerCfg:
-    """Task-level network and joint PPO settings, with a minimal default budget."""
+    """Task-level network, joint PPO settings and checkpoint schedule."""
     seed: int = 0
     num_steps_per_env: int = 8
-    max_iterations: int = 1
+    max_iterations: int = 15000
+    save_interval: int = 500
     experiment_name: str = "lite3_pie"
     model: ModelConfig = field(default_factory=ModelConfig)
     ppo: PPOConfig = field(default_factory=PPOConfig)
@@ -42,12 +43,14 @@ class PIEOnPolicyRunner(OnPolicyRunner):
         self.pie_cfg = train_cfg
         if train_cfg.num_steps_per_env < 1:
             raise ValueError("num_steps_per_env must be positive")
+        if not isinstance(train_cfg.save_interval, int) or train_cfg.save_interval < 1:
+            raise ValueError("save_interval must be a positive integer")
         seed_everything(train_cfg.seed)
         native_cfg = {
             "runner": {"policy_class_name": "PIEActorCritic",
                        "algorithm_class_name": "PIEPPO",
                        "num_steps_per_env": train_cfg.num_steps_per_env,
-                       "save_interval": 1},
+                       "save_interval": train_cfg.save_interval},
             "policy": {"model_config": asdict(train_cfg.model)},
             "algorithm": {"pie_config": asdict(train_cfg.ppo)},
         }
@@ -90,6 +93,8 @@ class PIEOnPolicyRunner(OnPolicyRunner):
             print(json.dumps(last, allow_nan=False), flush=True)
             hidden, reset_mask = self.alg.refresh_hidden(batch)
             self._observation, self._hidden, self._reset_mask = obs, hidden, reset_mask
+            if output is not None and self.current_learning_iteration % self.save_interval == 0:
+                self.save(output / "model_{}.pt".format(self.current_learning_iteration))
         if output is not None:
             checkpoint = output / "checkpoint.pt"
             self.save(checkpoint)
@@ -101,7 +106,7 @@ class PIEOnPolicyRunner(OnPolicyRunner):
         environment_cfg = asdict(environment_cfg) if is_dataclass(environment_cfg) else {}
         state, optimizer = self.alg.actor_critic.state_dict(), self.alg.optimizer.state_dict()
         # Native runner keys plus compatibility keys for existing bounded play.
-        torch.save({
+        checkpoint = {
             "model_state_dict": state, "optimizer_state_dict": optimizer,
             "iter": self.current_learning_iteration, "infos": infos,
             "model": state, "optimizer": optimizer,
@@ -109,7 +114,15 @@ class PIEOnPolicyRunner(OnPolicyRunner):
             "iterations": self.current_learning_iteration, "seed": self.pie_cfg.seed,
             "environment_config": environment_cfg, "torch_rng": torch.get_rng_state(),
             "rsl_rl_base": "v1.0.2", "pie_checkpoint_version": 2,
-        }, path)
+        }
+        path = Path(path)
+        temporary = path.with_name(path.name + ".tmp")
+        try:
+            torch.save(checkpoint, temporary)
+            temporary.replace(path)
+        finally:
+            if temporary.exists():
+                temporary.unlink()
 
     def load(self, path, load_optimizer=True):
         if load_optimizer:

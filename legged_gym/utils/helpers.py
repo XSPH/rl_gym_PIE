@@ -106,6 +106,8 @@ def update_cfg_from_args(env_cfg, cfg_train, args):
         # alg runner parameters
         if args.max_iterations is not None:
             cfg_train.runner.max_iterations = args.max_iterations
+        if getattr(args, "save_interval", None) is not None:
+            cfg_train.runner.save_interval = args.save_interval
         if args.resume:
             cfg_train.runner.resume = args.resume
         if args.experiment_name is not None:
@@ -134,6 +136,7 @@ def get_args():
         {"name": "--num_envs", "type": int, "help": "Number of environments to create. Overrides config file if provided."},
         {"name": "--seed", "type": int, "help": "Random seed. Overrides config file if provided."},
         {"name": "--max_iterations", "type": int, "help": "Maximum number of training iterations. Overrides config file if provided."},
+        {"name": "--save_interval", "type": int, "help": "Save a model every this many learning iterations"},
         {"name": "--rollout_steps", "type": int, "help": "PIE control steps per PPO rollout"},
         {"name": "--output_dir", "type": str, "help": "PIE checkpoint and metrics directory"},
         {"name": "--checkpoint_file", "type": str, "help": "PIE checkpoint for bounded play"},

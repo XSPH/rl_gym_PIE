@@ -42,6 +42,12 @@ Unreported paper dimensions and hyperparameters remain reproduction choices.
 The action scale parameter is now v1.0.2's native learnable `std`, bounded
 between exp(-5) and exp(2), instead of the previous 2.2.4 `log_std`.
 This changes optimizer parameterization while preserving initial standard deviation 0.5.
+The Lite3 task defaults to 4096 environments and 15000 learning iterations.
+The runner reads the task's save_interval (500 by default) and preserves numbered
+checkpoints at completed iterations 500, 1000, and so on. It also writes
+checkpoint.pt at the end of each learn() call. Saves use a temporary file and
+atomic replacement. Periodic checkpoints include weights and optimizer state;
+optimizer resume remains unsupported.
 Old wrapped actor/critic/log_std weight keys are converted on loading; optimizer
 resume is unsupported. The distribution is a native attribute, so sequence
 evaluation calls `policy_distribution()`.

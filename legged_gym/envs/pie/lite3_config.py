@@ -6,7 +6,7 @@ class Lite3PIECfg(LeggedRobotCfg):
     def __init__(self):
         super().__init__()
         self.pie = EnvConfig()
-        self.env.num_envs = 2
+        self.env.num_envs = 4096
         self.env.num_observations = 45
         self.env.num_privileged_obs = 235
         self.env.num_actions = 12
@@ -50,5 +50,5 @@ class Lite3PIECfgPPO(LeggedRobotCfgPPO):
     class runner(LeggedRobotCfgPPO.runner):
         experiment_name = 'lite3_pie'
         num_steps_per_env = 8
-        max_iterations = 1
-        save_interval = 1
+        max_iterations = 15000
+        save_interval = 500

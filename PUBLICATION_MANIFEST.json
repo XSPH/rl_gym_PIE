@@ -44,9 +44,9 @@
     },
     {
       "path": "README_PIE.md",
-      "bytes": 5574,
+      "bytes": 5822,
       "mode": "100644",
-      "sha256": "556d36b5159250fa24db349d266de7710ce801f70145cea4f72f9132841059ac"
+      "sha256": "955a1ea39e91ccfe6ef132d0d84c27eee5f2b7b2f09dd77cc7143b880b0e3a74"
     },
     {
       "path": "README_zh.md",
@@ -362,9 +362,9 @@
     },
     {
       "path": "legged_gym/envs/pie/lite3_config.py",
-      "bytes": 2313,
+      "bytes": 2322,
       "mode": "100644",
-      "sha256": "3c06b0f9e718223ac0b8232a89040359a6eb09fbe832f67203a9153b75ca4f6a"
+      "sha256": "4740c7fceb393466356c9ecf7617bda6af3008919a73ae891b39cf921739e243"
     },
     {
       "path": "legged_gym/pie/__init__.py",
@@ -446,9 +446,9 @@
     },
     {
       "path": "legged_gym/utils/helpers.py",
-      "bytes": 7775,
+      "bytes": 8010,
       "mode": "100644",
-      "sha256": "d15950f6d9c6a94824cc8370a01c60840811ea47b8f47f64ee73b395548011b4"
+      "sha256": "65d203980e0ceca453e7bc94e534c5f365225af53e438ed8283a54fdf17e457b"
     },
     {
       "path": "legged_gym/utils/isaacgym_utils.py",
@@ -470,9 +470,9 @@
     },
     {
       "path": "legged_gym/utils/task_registry.py",
-      "bytes": 6823,
+      "bytes": 6885,
       "mode": "100644",
-      "sha256": "408fda91bdb8aa9ee788c94862547f16666862b8a8bc2df1cee53548a056ecf6"
+      "sha256": "64ba51410fd4dfeeab9bd7b613a6e4075b7c26e6f26ddd2d0e283d0786cd3439"
     },
     {
       "path": "legged_gym/utils/terrain.py",
@@ -1856,9 +1856,9 @@
     },
     {
       "path": "rsl_rl/PIE_EXTENSION.md",
-      "bytes": 3230,
+      "bytes": 3655,
       "mode": "100644",
-      "sha256": "1201ab4ee0dea8d54209bab8e16a1bb342716f2c2f7d456f611fadbadf23032d"
+      "sha256": "99c218dd43e1d464bfbb0c6eabdb761cf29ab9b523ce9c559288edd84ce9f6e1"
     },
     {
       "path": "rsl_rl/README.md",
@@ -1952,9 +1952,9 @@
     },
     {
       "path": "rsl_rl/rsl_rl/runners/on_policy_runner_pie.py",
-      "bytes": 9647,
+      "bytes": 10298,
       "mode": "100644",
-      "sha256": "51f712b694fd299d628a7aca3a0e543ca7979b27359698f96f1d453d13cc7aa8"
+      "sha256": "66d3e11f216354d18c83170ae9fd357e717c5bd5e49abe1ed39a43359bb08551"
     },
     {
       "path": "rsl_rl/rsl_rl/storage/__init__.py",
@@ -2003,6 +2003,12 @@
       "bytes": 7587,
       "mode": "100644",
       "sha256": "4754ef7e31a1e28f2533030745e0723dae50547f6b81fac5592a24c605ab92e9"
+    },
+    {
+      "path": "tests/test_pie_checkpointing.py",
+      "bytes": 3538,
+      "mode": "100644",
+      "sha256": "a3fce2488a53b6c78e5eb15df8de07655f47976cdd934cd47d3446001c9519cb"
     },
     {
       "path": "tests/test_terrain_and_assets.py",
