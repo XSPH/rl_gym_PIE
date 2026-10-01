@@ -147,13 +147,23 @@ def test_original_logger_prints_and_records_each_reward_without_double_counting(
         "truncated": torch.zeros(1, dtype=torch.bool),
         "reward_terms": {"tracking_linear": torch.tensor([2.0]), "collision": torch.tensor([-1.0])}}])
     metrics = {"iteration": 1, "value": 0.2, "policy": -0.1, "loss": 0.3,
-               "collection_time": 0.3, "learning_time": 0.1, "mean_reward": 1.0}
+               "collection_time": 0.3, "learning_time": 0.1, "mean_reward": 1.0,
+               "velocity": 0.01, "foot_clearance": 0.02, "heightmap": 0.03,
+               "successor": 0.04, "kl": 0.05, "grad_norm": 2.0,
+               "learning_rate": 0.1, "transitions": 1}
     runner._log_pie_iteration(metrics, 15000, infos)
     text = capsys.readouterr().out
     assert "Learning iteration 0/15000" in text
     assert "Mean episode rew_tracking_lin_vel:" in text
     assert "Mean episode rew_collision:" in text
     assert "Surrogate loss:" in text
+    for label in ("Total loss:", "Velocity estimation loss:", "Foot clearance loss:",
+                  "Height map reconstruction loss:", "Successor reconstruction loss:",
+                  "VAE KL loss:", "Gradient norm before clipping:", "Learning rate:",
+                  "Mean step reward:", "Transitions this iteration:"):
+        assert label in text
+    assert text.index("Mean episode rew_collision:") < text.index("Velocity estimation loss:")
+    assert text.index("Velocity estimation loss:") < text.index("Total timesteps:")
     assert runner.current_learning_iteration == 1
     assert runner.tot_timesteps == 1
     assert runner.tot_time == pytest.approx(0.4)
@@ -163,3 +173,5 @@ def test_original_logger_prints_and_records_each_reward_without_double_counting(
     assert events.Scalars("Episode/rew_collision")[0].value == -1.0
     assert events.Scalars("Train/mean_reward")[0].value == 1.0
     assert events.Scalars("Loss/value_function")[0].step == 0
+    assert events.Scalars("PIE/velocity_loss")[0].value == pytest.approx(0.01)
+    assert events.Scalars("PIE/vae_kl_loss")[0].value == pytest.approx(0.05)

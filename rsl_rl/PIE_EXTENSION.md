@@ -48,7 +48,7 @@ checkpoints at completed iterations 500, 1000, and so on. It also writes
 checkpoint.pt at the end of each learn() call. Saves use a temporary file and
 atomic replacement. Periodic checkpoints include weights and optimizer state;
 optimizer resume remains unsupported.
-The PIE runner calls the unchanged native OnPolicyRunner.log() and writes
+The PIE runner calls the native OnPolicyRunner.log() and writes
 TensorBoard events alongside metrics.jsonl. Every actual PIE reward term is
 accumulated across rollouts, cleared only for finished environments and reported
 as Mean episode rew_* / Episode/rew_*, using LeggedRobot's weighted, dt-scaled
@@ -58,7 +58,11 @@ formula or weight is changed for logging. Train/mean_reward is a rolling mean of
 rollout reward. Episode lengths count collected steps across rollout boundaries,
 independent of randomized timeout counters. PIE VAE/estimation losses have
 separate tags. All encoder, recurrent, head and decoder modules are printed
-after the native Actor/Critic initialization output.
+after the native Actor/Critic initialization output. An optional extra_log_string
+adds PIE loss, gradient, learning-rate, step-reward and transition rows to the
+same console table, without removing any native reward/statistics rows. Stock
+tasks that omit this field retain their existing output. metrics.jsonl also
+records episode_rewards using the same per-term averaging as TensorBoard.
 Old wrapped actor/critic/log_std weight keys are converted on loading; optimizer
 resume is unsupported. The distribution is a native attribute, so sequence
 evaluation calls `policy_distribution()`.

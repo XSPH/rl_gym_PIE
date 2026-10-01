@@ -44,9 +44,9 @@
     },
     {
       "path": "README_PIE.md",
-      "bytes": 7264,
+      "bytes": 8352,
       "mode": "100644",
-      "sha256": "8ef2963d96f5e6e4538121df4de53fb15fee748abfa13b7885a9f535f7c38e90"
+      "sha256": "865b8799129fca4534dc2f71f23301cac363b9288bc15dc5cb33f48a5b291870"
     },
     {
       "path": "README_zh.md",
@@ -1856,9 +1856,9 @@
     },
     {
       "path": "rsl_rl/PIE_EXTENSION.md",
-      "bytes": 4490,
+      "bytes": 4816,
       "mode": "100644",
-      "sha256": "d6c90c3ebb9b6bf18d958b287fab2a3e1a1a079557b4ea7fadcc51bf64759751"
+      "sha256": "ea62b4ae2ecce3c593e60a8e6d0acf4b8b0dc65399d48018009faf2e915454bc"
     },
     {
       "path": "rsl_rl/README.md",
@@ -1946,15 +1946,15 @@
     },
     {
       "path": "rsl_rl/rsl_rl/runners/on_policy_runner.py",
-      "bytes": 12573,
+      "bytes": 12628,
       "mode": "100644",
-      "sha256": "7daeaddb9f2945fb385d28b1ceffb689838b0068b447f72e26d73c25747a079a"
+      "sha256": "4cdd5327797a863a257126b13a57a95f419f04b6f8c8f608a01c22e46a5e35ff"
     },
     {
       "path": "rsl_rl/rsl_rl/runners/on_policy_runner_pie.py",
-      "bytes": 15757,
+      "bytes": 16819,
       "mode": "100644",
-      "sha256": "c985f4d2111895fab74fd4ed630dacff3491f2cbd6b95a030faf191ca09415ae"
+      "sha256": "5abb697fc361a6bd7b173e0d7c0e4bf7d0d621eb85ac7ea1a1e8c92038a981e3"
     },
     {
       "path": "rsl_rl/rsl_rl/storage/__init__.py",
@@ -2006,9 +2006,9 @@
     },
     {
       "path": "tests/test_pie_checkpointing.py",
-      "bytes": 7745,
+      "bytes": 8634,
       "mode": "100644",
-      "sha256": "122e81f1de327ac3e44edd8f4ee55d38fcaa8f37ebbf2e732941ad67d16f86f8"
+      "sha256": "c77e27a8c9353655526e66456d91623b4022c5eed5d898d7c0dc9b49912406c2"
     },
     {
       "path": "tests/test_terrain_and_assets.py",

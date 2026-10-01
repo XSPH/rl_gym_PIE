@@ -108,6 +108,10 @@ class PIEOnPolicyRunner(OnPolicyRunner):
             if self._reward_buffer:
                 last.update(mean_episode_reward=sum(self._reward_buffer)/len(self._reward_buffer),
                             mean_episode_length=sum(self._length_buffer)/len(self._length_buffer))
+            if ep_infos:
+                last["episode_rewards"] = {
+                    name: float(torch.stack([info[name] for info in ep_infos]).mean())
+                    for name in ep_infos[0]}
             if output is not None:
                 with (output / "metrics.jsonl").open("a", encoding="utf-8") as stream:
                     stream.write(json.dumps(last, allow_nan=False) + "\n")
@@ -164,7 +168,7 @@ class PIEOnPolicyRunner(OnPolicyRunner):
         return ep_infos
 
     def _log_pie_iteration(self, metrics, target_iteration, ep_infos):
-        """Pass PIE statistics through the unchanged original RSL log()."""
+        """Keep original rewards/statistics and append PIE details in one table."""
         if self.writer is None:
             self.tot_timesteps = metrics["total_timesteps"]
             self.tot_time = metrics["total_time"]
@@ -174,6 +178,22 @@ class PIEOnPolicyRunner(OnPolicyRunner):
         # checkpoint counter intact and avoids counting time/steps twice.
         logger = copy(self)
         logger.current_learning_iteration = 0
+        extra_fields = [
+            ("Total loss:", "loss"),
+            ("Velocity estimation loss:", "velocity"),
+            ("Foot clearance loss:", "foot_clearance"),
+            ("Height map reconstruction loss:", "heightmap"),
+            ("Successor reconstruction loss:", "successor"),
+            ("VAE KL loss:", "kl"),
+            ("Gradient norm before clipping:", "grad_norm"),
+            ("Learning rate:", "learning_rate"),
+            ("Mean step reward:", "mean_reward"),
+        ]
+        extra_log_string = "".join(
+            "{:>35} {:.6f}\n".format(label, metrics[key])
+            for label, key in extra_fields if key in metrics)
+        if "transitions" in metrics:
+            extra_log_string += "{:>35} {}\n".format("Transitions this iteration:", metrics["transitions"])
         OnPolicyRunner.log(logger, {
             "it": metrics["iteration"]-1,
             "num_learning_iterations": target_iteration,
@@ -183,6 +203,7 @@ class PIEOnPolicyRunner(OnPolicyRunner):
             "mean_surrogate_loss": metrics["policy"],
             "ep_infos": ep_infos, "rewbuffer": self._reward_buffer,
             "lenbuffer": self._length_buffer,
+            "extra_log_string": extra_log_string,
         })
         self.tot_timesteps, self.tot_time = logger.tot_timesteps, logger.tot_time
         tags = {

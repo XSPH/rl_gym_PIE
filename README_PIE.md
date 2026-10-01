@@ -31,7 +31,22 @@ python -s legged_gym/scripts/play.py --task lite3_pie --headless --num_envs 2 --
 
 默认 4096 环境、8 步 rollout、15000 iterations，每完成 500 轮保存 `model_500.pt`、`model_1000.pt` 等，训练结束另存 `checkpoint.pt`。可以通过 `--num_envs`、`--max_iterations`、`--rollout_steps`、`--save_interval` 覆盖。以上最小验证命令显式使用 2 环境、1 轮和 16 步，使 10 Hz / 100 ms 延迟的视觉帧真正进入 rollout。检查脚本不训练。`runs/minimal` 保存的是此前 2.2.4 实现的 checkpoint、指标和日志，不能作为本次 v1.0.2 修改的运行证据；再次在同目录训练会覆盖 checkpoint。
 
-启动时打印 Actor、Critic、本体 MLP、深度 CNN、Transformer、GRU、各估计头及解码器。训练终端直接调用原版 RSL-RL `OnPolicyRunner.log()`，显示原版速度、采集/更新时间、噪声标准差、回合奖励/长度，以及全部 10 个 PIE 奖励项的 `Mean episode rew_*`；同时保留 `metrics.jsonl` 并写入 TensorBoard。`Mean reward` / `Train/mean_reward` 是最近 100 个完成回合的累计奖励；`Train/mean_step_reward` 和 JSON 的 `mean_reward` 是 rollout 中的单步平均奖励，不能直接比较。各项奖励按原 `LeggedRobot.reset_idx()` 的口径，累计已加权、按控制 dt 缩放的奖励，结束回合时除以配置的最大回合秒数，写入 `Episode/rew_*`。只有完成回合后才显示分项，未结束的回合累计值跨 rollout 保留。`rew_tracking_lin_vel`、`rew_tracking_ang_vel`、`rew_lin_vel_z`、`rew_ang_vel_xy`、`rew_dof_acc` 使用原仓库熟悉的命名，其余保留 PIE 奖励名。PIE 辅助损失单独记录在 TensorBoard 和 JSON 中；`PIE/vae_kl_loss` 是潜变量正则项。随机初始超时计数不计入已采集的回合长度。
+启动时打印 Actor、Critic、本体 MLP、深度 CNN、Transformer、GRU、各估计头及解码器。训练终端调用原版 RSL-RL `OnPolicyRunner.log()`，保留原版速度、采集/更新时间、噪声标准差、回合奖励/长度，以及全部 10 个 PIE 奖励项的 `Mean episode rew_*`。同一张表中追加总损失、速度/足高估计损失、高程图/后继重构损失、VAE KL、裁剪前梯度范数、学习率、单步奖励和本轮 transition 数；同时保留 `metrics.jsonl` 并写入 TensorBoard。JSON 的 `episode_rewards` 保存本轮分项奖励统计。原版 logger 只有一个可选追加文本入口，原任务不传该参数时输出不变。`Mean reward` / `Train/mean_reward` 是最近 100 个完成回合的累计奖励；`Mean step reward` / `Train/mean_step_reward` 和 JSON 的 `mean_reward` 是 rollout 中的单步平均奖励，不能直接比较。各项奖励按原 `LeggedRobot.reset_idx()` 的口径，累计已加权、按控制 dt 缩放的奖励，结束回合时除以配置的最大回合秒数，写入 `Episode/rew_*`。只有完成回合后才显示分项，未结束的回合累计值跨 rollout 保留。`rew_tracking_lin_vel`、`rew_tracking_ang_vel`、`rew_lin_vel_z`、`rew_ang_vel_xy`、`rew_dof_acc` 使用原仓库熟悉的命名，其余保留 PIE 奖励名。`PIE/vae_kl_loss` 是潜变量正则项。随机初始超时计数不计入已采集的回合长度。
+
+当前实际奖励由 `legged_gym/pie/sensors_and_rollout.py::_reward` 计算，以下系数在 `reward_scale_dt=True` 时还乘以控制 dt；日志并未更改这些公式或系数。
+
+| 奖励项 | 日志名 | 系数 |
+| --- | --- | --- |
+| 平面线速度跟踪 | `rew_tracking_lin_vel` | 1.5 |
+| 偏航角速度跟踪 | `rew_tracking_ang_vel` | 0.5 |
+| 垂直速度平方 | `rew_lin_vel_z` | -1.0 |
+| 横滚/俯仰角速度平方和 | `rew_ang_vel_xy` | -0.05 |
+| 姿态偏离平方和 | `rew_orientation` | -1.0 |
+| 关节加速度平方和 | `rew_dof_acc` | -2.5e-7 |
+| 关节绝对功率和 | `rew_joint_power` | -2e-5 |
+| 非足部碰撞数量 | `rew_collision` | -10.0 |
+| 动作一阶变化平方和 | `rew_action_rate` | -0.01 |
+| 动作二阶变化平方和 | `rew_smoothness` | -0.01 |
 
 仅 Lite3 PIE 的 PhysX 配置预留 `max_gpu_contact_pairs=2**25`、`default_buffer_size_multiplier=10.0`，用于 4096 环境共享地形时的 GPU 碰撞缓冲区；其他机器人任务继续使用原配置。该设置增加物理缓冲区显存占用，与网络超参数无关。
 
