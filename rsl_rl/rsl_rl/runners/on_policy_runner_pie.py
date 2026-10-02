@@ -242,6 +242,14 @@ class PIEOnPolicyRunner(OnPolicyRunner):
     def save(self, path, infos=None):
         environment_cfg = getattr(self.env, "config", None)
         environment_cfg = asdict(environment_cfg) if is_dataclass(environment_cfg) else {}
+        playback_cfg = {}
+        if hasattr(self.env, "commands_scale") and hasattr(self.env, "cfg"):
+            playback_cfg = {
+                "command_scales": self.env.commands_scale.detach().cpu().tolist(),
+                "joint_position_scale": self.env.obs_scales.dof_pos,
+                "clip_observations": self.env.cfg.normalization.clip_observations,
+                "only_positive_rewards": self.env.cfg.rewards.only_positive_rewards,
+            }
         state, optimizer = self.alg.actor_critic.state_dict(), self.alg.optimizer.state_dict()
         # Native runner keys plus compatibility keys for existing bounded play.
         checkpoint = {
@@ -250,7 +258,8 @@ class PIEOnPolicyRunner(OnPolicyRunner):
             "model": state, "optimizer": optimizer,
             "model_config": asdict(self.pie_cfg.model), "ppo_config": asdict(self.pie_cfg.ppo),
             "iterations": self.current_learning_iteration, "seed": self.pie_cfg.seed,
-            "environment_config": environment_cfg, "torch_rng": torch.get_rng_state(),
+            "environment_config": environment_cfg, "playback_config": playback_cfg,
+            "torch_rng": torch.get_rng_state(),
             "total_timesteps": self.tot_timesteps, "total_time": self.tot_time,
             "rsl_rl_base": "v1.0.2", "pie_checkpoint_version": 2,
         }
@@ -351,12 +360,38 @@ def evaluate(env, checkpoint, steps=20):
     hidden = model.initial_state(obs["proprio"].shape[0])
     reset_mask = torch.ones(hidden.shape[0], dtype=torch.bool, device=hidden.device)
     rewards, terminated_count, timeout_count = [], 0, 0
-    for _ in range(steps):
+    reset_reasons, episode_lengths, printed_resets = {}, [], 0
+    for step in range(steps):
         actions, _, _, hidden = model.act(obs, hidden, reset_mask, deterministic=True)
-        obs, reward, terminated, truncated, _ = env.step(actions)
+        obs, reward, terminated, truncated, info = env.step(actions)
         rewards.append(float(reward.mean()))
         terminated_count += int(terminated.sum()); timeout_count += int(truncated.sum())
+        episode = info.get("episode", {})
+        ids = episode.get("indices")
+        if ids is not None and ids.numel():
+            lengths = episode["length"].detach().cpu().tolist()
+            episode_lengths.extend(lengths)
+            reasons = {
+                name: values.detach().cpu().tolist()
+                for name, values in episode.get("termination_reasons", {}).items()
+            }
+            for name, flags in reasons.items():
+                reset_reasons[name] = reset_reasons.get(name, 0) + sum(flags)
+            if printed_resets < 20:
+                positions = episode.get("position")
+                positions = positions.detach().cpu().tolist() if positions is not None else None
+                for index, env_id in enumerate(ids.detach().cpu().tolist()):
+                    if printed_resets >= 20:
+                        break
+                    active = [name for name, flags in reasons.items() if flags[index]]
+                    position = "" if positions is None else " position=({:.2f}, {:.2f}, {:.2f})".format(*positions[index])
+                    print("[PIE reset] step={} env={} episode_steps={} simulated_seconds={:.2f} reasons={}{}".format(
+                        step + 1, env_id, lengths[index], lengths[index] * env.config.policy_dt,
+                        ",".join(active) or "unspecified", position), flush=True)
+                    printed_resets += 1
         reset_mask = terminated | truncated
     return {"steps": steps, "mean_reward": sum(rewards)/len(rewards),
             "terminations": terminated_count, "timeouts": timeout_count,
+            "reset_reasons": reset_reasons,
+            "mean_completed_episode_steps": sum(episode_lengths) / len(episode_lengths) if episode_lengths else None,
             "claim": "bounded checkpoint evaluation; not a paper-performance benchmark"}

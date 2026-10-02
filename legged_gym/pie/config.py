@@ -163,15 +163,19 @@ class EnvConfig:
         return asdict(self)
 
 
-def load_config(path=None):
+def config_from_dict(values):
     cfg = EnvConfig()
+    nested = {"robot": RobotConfig, "camera": CameraConfig, "terrain": TerrainConfig,
+              "randomization": RandomizationConfig}
+    for key, value in values.items():
+        if key not in cfg.__dataclass_fields__:
+            raise ValueError("Unknown environment configuration key: " + key)
+        setattr(cfg, key, nested[key](**value) if key in nested else value)
+    return cfg.validate()
+
+
+def load_config(path=None):
     if path is not None:
         with open(path) as handle:
-            values = json.load(handle)
-        nested = {"robot": RobotConfig, "camera": CameraConfig, "terrain": TerrainConfig,
-                  "randomization": RandomizationConfig}
-        for key, value in values.items():
-            if key not in cfg.__dataclass_fields__:
-                raise ValueError("Unknown environment configuration key: " + key)
-            setattr(cfg, key, nested[key](**value) if key in nested else value)
-    return cfg.validate()
+            return config_from_dict(json.load(handle))
+    return EnvConfig().validate()

@@ -235,6 +235,12 @@
       "sha256": "8e442c1df359b01bef04a77ac1b10f5067c3d899fbe5cc0a35c4f2df4560f96c"
     },
     {
+      "path": "docs/model_14000_playback_diagnosis_2026-10-02.md",
+      "bytes": 2241,
+      "mode": "100644",
+      "sha256": "03bc0ec3d40b2cf041bd14f1d4f2b9e2dd546c76aa830594ff4e5f641d46c77b"
+    },
+    {
       "path": "docs/pie_method.md",
       "bytes": 9362,
       "mode": "100644",
@@ -302,9 +308,9 @@
     },
     {
       "path": "legged_gym/envs/base/legged_robot_config.py",
-      "bytes": 8413,
+      "bytes": 8414,
       "mode": "100644",
-      "sha256": "009677a88e2cca66feae457a90679c32fc8676272045a29649a125fb59f2ef56"
+      "sha256": "ae933c58e796b3ea5068484a4ccb734c45a55f09f7e96332e70d7a36ecf22682"
     },
     {
       "path": "legged_gym/envs/g1/g1_config.py",
@@ -380,9 +386,9 @@
     },
     {
       "path": "legged_gym/pie/config.py",
-      "bytes": 7449,
+      "bytes": 7507,
       "mode": "100644",
-      "sha256": "62684428eb2e2b4c808ff1da865c1e5f96636b40db73fc60ca4512dc59558f8f"
+      "sha256": "62827d0178ebb2d47d01af59b90b7a432b5dc380c271d4b5255d83199a5392bc"
     },
     {
       "path": "legged_gym/pie/kinematics.py",
@@ -409,10 +415,16 @@
       "sha256": "9726a279f077f090874e8464c7847725718a371a068b2931107ece5ebf5e860f"
     },
     {
-      "path": "legged_gym/pie/sensors_and_rollout.py",
-      "bytes": 20985,
+      "path": "legged_gym/pie/playback.py",
+      "bytes": 2460,
       "mode": "100644",
-      "sha256": "e595b6fef5e34d95a36ca86df1518584d463b8b3af40927ced5d8003e6248b00"
+      "sha256": "f508ded985cc70534dbdb35e698a67e241681e51fe69b92fb36e71634c2bbef3"
+    },
+    {
+      "path": "legged_gym/pie/sensors_and_rollout.py",
+      "bytes": 21648,
+      "mode": "100644",
+      "sha256": "be7de88b0fc91fdfd884e493cf91c8982961ec73d40d5768d601e20285ce7130"
     },
     {
       "path": "legged_gym/pie/terrain.py",
@@ -434,9 +446,9 @@
     },
     {
       "path": "legged_gym/scripts/play.py",
-      "bytes": 2501,
+      "bytes": 2776,
       "mode": "100644",
-      "sha256": "a9d7594b9dd9a46d1302ffd3c8bc74d4c663e412b54a14a682996e6934386387"
+      "sha256": "78b9dceab1baf82b479663b9ce600c8ee39d6f1e663cd5852fc8714aa679deb6"
     },
     {
       "path": "legged_gym/scripts/train.py",
@@ -1958,9 +1970,9 @@
     },
     {
       "path": "rsl_rl/rsl_rl/runners/on_policy_runner_pie.py",
-      "bytes": 19789,
+      "bytes": 21946,
       "mode": "100644",
-      "sha256": "93c2aa9a0e04a315d3a720c5dd97724ef6c7fe3429703994a34cd2d9a567c5fd"
+      "sha256": "4f24938fba3cb3059b4c75b064e0111b2e71db2ae0445864408e6c8b06fbd283"
     },
     {
       "path": "rsl_rl/rsl_rl/storage/__init__.py",
@@ -2021,6 +2033,12 @@
       "bytes": 5134,
       "mode": "100644",
       "sha256": "342fccc539499cc3ff5281864e65955fe96a57732a3e9c19320b52a1524761b3"
+    },
+    {
+      "path": "tests/test_pie_playback_config.py",
+      "bytes": 3057,
+      "mode": "100644",
+      "sha256": "ed8e6764d81cb2a0e7f714c0c630ddb81ff5354c2c6e02d1da49d97a0a717ba6"
     },
     {
       "path": "tests/test_pie_ppo_schedule.py",

@@ -17,14 +17,16 @@ def play(args):
     if args.task == "lite3_pie":
         import json
         from rsl_rl.runners.on_policy_runner_pie import evaluate
+        from legged_gym.pie.playback import restore_playback_config
         if args.checkpoint_file is None:
             raise ValueError("PIE play requires --checkpoint_file")
-        env_cfg.pie.randomization.enabled = False
-        env_cfg.pie.observation_noise = False
-        env_cfg.pie.terrain.curriculum = False
-        env_cfg.domain_rand.randomize_friction = False
-        env_cfg.domain_rand.randomize_base_mass = False
-        env_cfg.domain_rand.push_robots = False
+        checkpoint = torch.load(args.checkpoint_file, map_location="cpu", weights_only=True)
+        env_cfg, source = restore_playback_config(env_cfg, checkpoint)
+        scales = env_cfg.normalization.obs_scales
+        print("[PIE playback] {}: action_clip={}, command_scales=({}, {}, {}), initial_max_level={}".format(
+            source, env_cfg.pie.robot.action_clip, scales.lin_vel, scales.lin_vel,
+            scales.ang_vel, env_cfg.pie.terrain.initial_max_level), flush=True)
+        del checkpoint
         env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
         try:
             print(json.dumps(evaluate(env, args.checkpoint_file, steps=args.steps), indent=2))

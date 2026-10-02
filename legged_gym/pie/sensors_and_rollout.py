@@ -327,7 +327,9 @@ class PIESensorsAndRollout:
         base_contact = torch.linalg.vector_norm(self.contacts[:, self.base_index], dim=-1) > 1.0
         outside = (self.root[:, 1] - origins[:, 1]).abs() > cfg.terrain.width / 2
         outside |= self.root[:, 0] < origins[:, 0] - 0.6
-        terminated = base_contact | (gravity[:, 2] > -0.3) | (self.root[:, 2] < cfg.terrain.floor_height + 0.15) | outside | ~finite | success
+        tilted = gravity[:, 2] > -0.3
+        fallen = self.root[:, 2] < cfg.terrain.floor_height + 0.15
+        terminated = base_contact | tilted | fallen | outside | ~finite | success
         truncated = (self.episode_steps >= math.ceil(cfg.episode_seconds / cfg.policy_dt)) & ~terminated
         done = terminated | truncated
         resample = torch.nonzero((self.episode_steps % max(1, round(cfg.command_seconds / cfg.policy_dt))) == 0).flatten()
@@ -345,7 +347,17 @@ class PIESensorsAndRollout:
                 "reset_mask": done.clone(), "time_outs": truncated.clone(), "success": success.clone(),
                 "reward_terms": parts, "terrain_level": self.levels.clone(),
                 "episode": {"indices": ids.clone(), "return": self.episode_returns[ids].clone(),
-                            "length": self.episode_steps[ids].clone()}}
+                            "length": self.episode_steps[ids].clone(),
+                            "position": self.root[ids, :3].clone(),
+                            "termination_reasons": {
+                                "base_contact": base_contact[ids].clone(),
+                                "tilted": tilted[ids].clone(),
+                                "fallen": fallen[ids].clone(),
+                                "outside": outside[ids].clone(),
+                                "nonfinite": (~finite)[ids].clone(),
+                                "success": success[ids].clone(),
+                                "timeout": truncated[ids].clone(),
+                            }}}
         self._reset_indices(ids, curriculum=True, success=success)
         obs = self._observations(self.proprio_history[:, -1]) if ids.numel() else terminal
         if self.viewer is not None:
