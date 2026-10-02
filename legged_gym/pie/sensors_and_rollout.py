@@ -61,6 +61,15 @@ class PIESensorsAndRollout:
         self.torques = torch.zeros_like(self.actions)
         self.effort = torch.zeros_like(self.actions)
         self.commands = torch.zeros((n, 3), device=self.device)
+        # Original LeggedRobot amplitudes, mapped to PIE's 45-D ordering
+        # (base velocity is estimated, so it is absent from the actor input).
+        noise = self.cfg.noise.noise_scales
+        level = self.cfg.noise.noise_level
+        self.proprio_noise_scale = torch.zeros(45, device=self.device)
+        self.proprio_noise_scale[:3] = noise.ang_vel * level * self.config.angular_velocity_scale
+        self.proprio_noise_scale[3:6] = noise.gravity * level
+        self.proprio_noise_scale[9:21] = noise.dof_pos * level * self.obs_scales.dof_pos
+        self.proprio_noise_scale[21:33] = noise.dof_vel * level * self.config.joint_velocity_scale
         self.episode_steps = torch.zeros(n, device=self.device, dtype=torch.long)
         self.episode_returns = torch.zeros(n, device=self.device)
         self.proprio_history = torch.zeros((n, self.config.proprio_history, 45), device=self.device)
@@ -97,6 +106,7 @@ class PIESensorsAndRollout:
         self.commands[ids, 0] = self._uniform((len(ids),), self.config.forward_velocity)
         self.commands[ids, 1] = 0.0
         self.commands[ids, 2] = self._uniform((len(ids),), self.config.yaw_velocity)
+        self.commands[ids, :2] *= (self.commands[ids, :2].norm(dim=-1) > 0.2).unsqueeze(-1)
 
     def _update_goal_commands(self):
         if self.config.command_mode == "goal":
@@ -121,6 +131,8 @@ class PIESensorsAndRollout:
         self.root[ids, 2] += cfg.robot.base_height
         if cfg.randomization.enabled:
             self.root[ids, 1] += self._uniform((count,), [-0.1, 0.1])
+            # Restore the native reset-time linear/angular velocity variation.
+            self.root[ids, 7:13] = self._uniform((count, 6), [-0.5, 0.5])
         self.root[ids, 6] = 1.0
         factor = self._uniform((count, 12), cfg.randomization.joint_position_factor) if cfg.randomization.enabled else 1.0
         q = (self.stand.expand(count, -1) * factor).clamp(self.joint_lower, self.joint_upper)
@@ -198,17 +210,34 @@ class PIESensorsAndRollout:
         return (quat_rotate_inverse(q, self.root[:, 7:10]),
                 quat_rotate_inverse(q, self.root[:, 10:13]), quat_rotate_inverse(q, self.gravity))
 
+    def _apply_pushes(self):
+        """Apply the original indexed velocity impulse to the due environments."""
+        if not (self.config.randomization.enabled and self.cfg.domain_rand.push_robots):
+            return
+        interval = max(1, int(self.cfg.domain_rand.push_interval))
+        ids = torch.nonzero(self.episode_steps % interval == 0).flatten()
+        if ids.numel() == 0:
+            return
+        maximum = self.cfg.domain_rand.max_push_vel_xy
+        # Updating only the selected rows also keeps cached states of other
+        # robots consistent with PhysX (the stock helper modifies all rows).
+        self.root[ids, 7:9] = self._uniform((len(ids), 2), [-maximum, maximum])
+        selected = self.actor_indices[ids].contiguous()
+        self.gym.set_actor_root_state_tensor_indexed(
+            self.sim, gymtorch.unwrap_tensor(self.root),
+            gymtorch.unwrap_tensor(selected), len(ids))
+
     def _proprio(self):
         _, omega, gravity = self._base_quantities()
         joints = self.dof[:, self.joint_order]
         proprio = torch.cat((omega * self.config.angular_velocity_scale, gravity,
-            self.commands, joints[..., 0] - self.stand,
+            self.commands * self.commands_scale,
+            (joints[..., 0] - self.stand) * self.obs_scales.dof_pos,
             joints[..., 1] * self.config.joint_velocity_scale, self.actions), -1)
-        if self.config.observation_noise:
-            amplitude = torch.tensor([0.05] * 3 + [0.02] * 3 + [0.0] * 3 +
-                                      [0.01] * 12 + [0.05] * 12 + [0.0] * 12, device=self.device)
-            proprio = proprio + (2 * torch.rand_like(proprio) - 1) * amplitude
-        return proprio
+        if self.config.observation_noise and self.cfg.noise.add_noise:
+            proprio = proprio + (2 * torch.rand_like(proprio) - 1) * self.proprio_noise_scale
+        clip = self.cfg.normalization.clip_observations
+        return proprio.clamp(-clip, clip)
 
     def _observations(self, proprio):
         velocity, _, _ = self._base_quantities()
@@ -224,7 +253,8 @@ class PIESensorsAndRollout:
         foot_clearance = (feet[..., 2] - self.terrain.sample(feet, self.levels, self.columns) - self.config.robot.foot_radius).clamp(0.0, 2.0)
         return {"proprio": proprio.clone(), "proprio_history": self.proprio_history.clone(),
                 "depth": self.depth_history.clone(),
-                "critic": torch.cat((proprio, velocity, heightmap), -1),
+                "critic": torch.cat((proprio, velocity, heightmap), -1).clamp(
+                    -self.cfg.normalization.clip_observations, self.cfg.normalization.clip_observations),
                 "targets": {"velocity": velocity.clone(), "foot_clearance": foot_clearance.clone(),
                             "heightmap": heightmap.clone()}}
 
@@ -245,6 +275,8 @@ class PIESensorsAndRollout:
             "smoothness": -0.01 * (action - 2 * prior + prior_prior).square().sum(-1),
         }
         reward = sum(parts.values())
+        if self.cfg.rewards.only_positive_rewards:
+            reward = reward.clamp_min(0.0)
         if self.config.reward_scale_dt:
             reward = reward * self.config.policy_dt
         return reward, parts
@@ -301,6 +333,7 @@ class PIESensorsAndRollout:
         resample = torch.nonzero((self.episode_steps % max(1, round(cfg.command_seconds / cfg.policy_dt))) == 0).flatten()
         self._sample_commands(resample)
         self._update_goal_commands()
+        self._apply_pushes()
         if self.control_steps % cfg.camera.update_every == 0:
             self._render_depth()
         proprio = self._proprio()

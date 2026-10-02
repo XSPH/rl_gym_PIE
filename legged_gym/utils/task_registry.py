@@ -117,8 +117,7 @@ class TaskRegistry():
         train_cfg_dict = class_to_dict(train_cfg)
         if train_cfg.runner_class_name == "PIEOnPolicyRunner":
             from rsl_rl.runners import PIEOnPolicyRunner, PIERunnerCfg
-            if train_cfg.runner.resume:
-                raise ValueError("PIE optimizer resume is not implemented; use the PIE play entry for checkpoint evaluation.")
+            train_cfg.sync_pie_config()
             rollout_steps = getattr(args, "rollout_steps", None)
             pie_cfg = PIERunnerCfg(seed=train_cfg.seed,
                 max_iterations=train_cfg.runner.max_iterations,

@@ -31,23 +31,24 @@ Architecture retained from the preceding implementation:
 - Successor decoder: 55 → 128 → 128 → 45.
 - Heightmap decoder: 32 → 128 → 128 → 187.
 
-PPO defaults retained: Adam 3e-4, gamma 0.99, GAE lambda 0.95, clip 0.2,
-2 epochs, 2 minibatches, entropy coefficient 0.01, value/estimation/KL
-weights 1, gradient norm limit 1. Advantages retain population-standard-
-deviation normalization to support very small batches.
+PPO defaults restored: Adam 1e-3, gamma 0.99, GAE lambda 0.95, clip 0.2,
+5 epochs, 4 minibatches, adaptive scheduling with desired policy KL 0.01, 24 rollout steps, entropy coefficient 0.01, value/estimation/KL
+weights 1, gradient norm limit 1. Advantages use native sample-standard-deviation normalization plus 1e-8;
+a single-transition smoke helper uses a finite zero-variance fallback.
 One native PPO optimizer trains the entire model, including the PIE estimator.
 The actor uses posterior means; the auxiliary successor decoder samples the VAE.
 Unreported paper dimensions and hyperparameters remain reproduction choices.
 
-The action scale parameter is now v1.0.2's native learnable `std`, bounded
-between exp(-5) and exp(2), instead of the previous 2.2.4 `log_std`.
-This changes optimizer parameterization while preserving initial standard deviation 0.5.
+The Gaussian uses v1.0.2's native learnable `std`, initialized to 1.0 for new
+training. The exp(-5)/exp(2) exploration bounds have been removed; only a dtype
+epsilon positivity safeguard remains. Loaded weights keep their learned std.
 The Lite3 task defaults to 4096 environments and 15000 learning iterations.
 The runner reads the task's save_interval (500 by default) and preserves numbered
 checkpoints at completed iterations 500, 1000, and so on. It also writes
 checkpoint.pt at the end of each learn() call. Saves use a temporary file and
 atomic replacement. Periodic checkpoints include weights and optimizer state;
-optimizer resume remains unsupported.
+v1.0.2 PIE optimizer resume restores Adam, adaptive learning rate and iteration.
+Simulation episodes and GRU state restart; max_iterations is a total target in train.py.
 The PIE runner calls the native OnPolicyRunner.log() and writes
 TensorBoard events alongside metrics.jsonl. Every actual PIE reward term is
 accumulated across rollouts, cleared only for finished environments and reported
@@ -63,8 +64,8 @@ adds PIE loss, gradient, learning-rate, step-reward and transition rows to the
 same console table, without removing any native reward/statistics rows. Stock
 tasks that omit this field retain their existing output. metrics.jsonl also
 records episode_rewards using the same per-term averaging as TensorBoard.
-Old wrapped actor/critic/log_std weight keys are converted on loading; optimizer
-resume is unsupported. The distribution is a native attribute, so sequence
+Old wrapped actor/critic/log_std weight keys are converted on weight loading;
+2.2.4 optimizer moments cannot be reused in the v1.0.2 parameterization. The distribution is a native attribute, so sequence
 evaluation calls `policy_distribution()`.
 
 Install editable into the dedicated pie-isaacgym environment:
@@ -77,5 +78,7 @@ python -s -m pip install --no-deps --no-build-isolation -e .
 These commands are run from the parent unitree_rl_gym directory.
 This clone retains its own Git repository; save its changes independently of
 the parent repository. A clean checkout of the tag alone does not contain PIE.
-This migration received static code inspection only; no tests, simulation,
-training or checkpoint playback were run.
+The migration initially received static inspection only. The 2026-10-02 formal
+configuration revision passed CPU checks of recurrent learning, policy KL scheduling,
+indexed impulse contracts, atomic checkpoints and optimizer resume. No GPU
+simulation or full training was run in that revision.

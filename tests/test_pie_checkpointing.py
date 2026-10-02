@@ -152,7 +152,7 @@ def test_original_logger_prints_and_records_each_reward_without_double_counting(
     metrics = {"iteration": 1, "value": 0.2, "policy": -0.1, "loss": 0.3,
                "collection_time": 0.3, "learning_time": 0.1, "mean_reward": 1.0,
                "velocity": 0.01, "foot_clearance": 0.02, "heightmap": 0.03,
-               "successor": 0.04, "kl": 0.05, "grad_norm": 2.0,
+               "successor": 0.04, "kl": 0.05, "policy_kl": 0.007, "grad_norm": 2.0,
                "learning_rate": 0.1, "transitions": 1,
                "terrain_level": 1.0, "terrain_level_min": 0, "terrain_level_max": 2}
     runner._log_pie_iteration(metrics, 15000, infos)
@@ -163,7 +163,7 @@ def test_original_logger_prints_and_records_each_reward_without_double_counting(
     assert "Surrogate loss:" in text
     for label in ("Total loss:", "Velocity estimation loss:", "Foot clearance loss:",
                   "Height map reconstruction loss:", "Successor reconstruction loss:",
-                  "VAE KL loss:", "Gradient norm before clipping:", "Learning rate:",
+                  "VAE KL loss:", "Policy KL divergence:", "Gradient norm before clipping:", "Learning rate:",
                   "Mean step reward:", "Transitions this iteration:",
                   "Mean terrain level:", "Min terrain level:", "Max terrain level:"):
         assert label in text
@@ -180,6 +180,69 @@ def test_original_logger_prints_and_records_each_reward_without_double_counting(
     assert events.Scalars("Loss/value_function")[0].step == 0
     assert events.Scalars("PIE/velocity_loss")[0].value == pytest.approx(0.01)
     assert events.Scalars("PIE/vae_kl_loss")[0].value == pytest.approx(0.05)
+    assert events.Scalars("PIE/policy_kl")[0].value == pytest.approx(0.007)
     assert events.Scalars("Episode/terrain_level")[0].value == 1.0
     assert events.Scalars("Terrain/min_level")[0].value == 0.0
     assert events.Scalars("Terrain/max_level")[0].value == 2.0
+
+
+def test_resume_restores_adam_lr_iteration_and_learned_std_with_fresh_episodes(tmp_path):
+    from dataclasses import replace
+    from rsl_rl.algorithms.ppo_pie import PPOConfig
+    from test_pie_ppo_schedule import _rollout, _TensorObservations
+
+    torch.set_num_threads(1)
+    algorithm, batch = _rollout(PPOConfig(epochs=1, minibatches=1))
+    inputs = _TensorObservations()
+    algorithm.update(batch)
+    with torch.no_grad():
+        algorithm.model.std.fill_(0.37)
+    for group in algorithm.optimizer.param_groups:
+        group["lr"] = 7e-4
+    runner = _runner(tmp_path)
+    runner.alg = algorithm
+    runner.pie_cfg.model = replace(algorithm.model.cfg, initial_std=0.5)
+    runner.current_learning_iteration = 500
+    runner.tot_timesteps, runner.tot_time = 987, 4.0
+    checkpoint = tmp_path / "resume.pt"
+    runner.save(checkpoint)
+
+    env = SimpleNamespace(device="cpu", num_envs=inputs.count, num_obs=3,
+                          num_privileged_obs=4, num_actions=2,
+                          config=SimpleNamespace(policy_dt=0.02, episode_seconds=20.0,
+                                                 reward_scale_dt=True),
+                          reset=inputs.observation, step=inputs.step)
+    resumed = PIEOnPolicyRunner(env, PIERunnerCfg(
+        model=replace(algorithm.model.cfg, initial_std=1.0),
+        ppo=PPOConfig(epochs=1, minibatches=1), num_steps_per_env=3),
+        log_dir=None, device="cpu")
+    resumed._episode_reward_sum = torch.ones(inputs.count)
+    resumed.load(checkpoint)
+    assert resumed.current_learning_iteration == 500
+    assert resumed.tot_timesteps == 987 and resumed.tot_time == 4.0
+    assert resumed.alg.learning_rate == pytest.approx(7e-4)
+    assert resumed.alg.optimizer.param_groups[0]["lr"] == pytest.approx(7e-4)
+    torch.testing.assert_close(resumed.alg.model.std, torch.full((2,), 0.37))
+    for key, value in algorithm.model.state_dict().items():
+        torch.testing.assert_close(resumed.alg.model.state_dict()[key], value)
+    actual = resumed.alg.optimizer.state_dict()["state"]
+    for parameter, moments in algorithm.optimizer.state_dict()["state"].items():
+        for name, value in moments.items():
+            torch.testing.assert_close(actual[parameter][name], value)
+    assert torch.count_nonzero(resumed._hidden) == 0
+    assert resumed._reset_mask.all()
+    assert not hasattr(resumed, "_episode_reward_sum")
+    report = resumed.learn(1)
+    assert report["iteration"] == 501
+    assert resumed.tot_timesteps == 987 + inputs.count * 3
+
+
+def test_resume_rejects_optimizer_from_old_parameterization(tmp_path):
+    runner = _runner(tmp_path)
+    checkpoint = tmp_path / "old.pt"
+    runner.save(checkpoint)
+    saved = torch.load(checkpoint, weights_only=True)
+    saved["rsl_rl_base"] = "2.2.4"
+    torch.save(saved, checkpoint)
+    with pytest.raises(ValueError, match="requires a v1.0.2 PIE checkpoint"):
+        runner.load(checkpoint)

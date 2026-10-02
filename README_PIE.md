@@ -17,7 +17,27 @@ python -s -m pip install --no-deps --no-build-isolation -e .
 
 请在专用 Conda 环境中执行安装。现有 `rsl_rl/` 已含扩展，无需重新克隆。父项目只打包 `legged_gym`，rsl_rl 独立安装。
 
-## 最小运行命令（本次未执行）
+## 正式训练
+
+服务器的独立环境与发布仓库使用以下命令（服务器需先更新仓库）：
+
+```bash
+conda activate pie-isaacgym
+cd ~/rl_gym_PIE/legged_gym/scripts
+python train.py --task=lite3_pie --headless
+```
+
+默认4096环境、15000总迭代、每500轮保存、24步rollout；PPO为1e-3/5 epochs/4 minibatches/adaptive/KL 0.01，新训练std=1.0。本体噪声和原版随机推扰已恢复，深度图仍无噪声/滤波。启动日志打印实际PPO配置及全部网络模块。参数与复现边界见[正式训练审查](docs/formal_training_review_2026-10-02.md)。
+
+从同一v1.0.2 PIE实现的编号模型续训：
+
+```bash
+python train.py --task=lite3_pie --headless --resume --load_run <运行目录名> --checkpoint 500
+```
+
+恢复权重、Adam、学习率与累计轮次，重新开始仿真回合和GRU记忆；总目标为15000轮，加载model_500.pt后继续14500轮。续训保留已学习std，不重置成1.0。默认建立新的日志目录，旧模型目录保留。
+
+## 可选最小检查（本次没有启动仿真）
 
 ```bash
 conda activate /home/asuka/Legged/parkour/.conda-envs/pie-isaacgym
@@ -29,11 +49,11 @@ python -s legged_gym/scripts/train.py --task lite3_pie --headless --num_envs 2 -
 python -s legged_gym/scripts/play.py --task lite3_pie --headless --num_envs 2 --steps 4 --checkpoint_file runs/minimal/checkpoint.pt
 ```
 
-默认 4096 环境、8 步 rollout、15000 iterations，每完成 500 轮保存 `model_500.pt`、`model_1000.pt` 等，训练结束另存 `checkpoint.pt`。可以通过 `--num_envs`、`--max_iterations`、`--rollout_steps`、`--save_interval` 覆盖。以上最小验证命令显式使用 2 环境、1 轮和 16 步，使 10 Hz / 100 ms 延迟的视觉帧真正进入 rollout。检查脚本不训练。`runs/minimal` 保存的是此前 2.2.4 实现的 checkpoint、指标和日志，不能作为本次 v1.0.2 修改的运行证据；再次在同目录训练会覆盖 checkpoint。
+默认 4096 环境、24 步 rollout、15000 iterations，每完成 500 轮保存 `model_500.pt`、`model_1000.pt` 等，训练结束另存 `checkpoint.pt`。可以通过 `--num_envs`、`--max_iterations`、`--rollout_steps`、`--save_interval` 覆盖。以上最小验证命令显式使用 2 环境、1 轮和 16 步，使 10 Hz / 100 ms 延迟的视觉帧真正进入 rollout。检查脚本不训练。`runs/minimal` 保存的是此前 2.2.4 实现的 checkpoint、指标和日志，不能作为本次 v1.0.2 修改的运行证据；再次在同目录训练会覆盖 checkpoint。
 
-启动时打印 Actor、Critic、本体 MLP、深度 CNN、Transformer、GRU、各估计头及解码器。训练终端调用原版 RSL-RL `OnPolicyRunner.log()`，保留原版速度、采集/更新时间、噪声标准差、回合奖励/长度，以及全部 10 个 PIE 奖励项的 `Mean episode rew_*`。同一张表中追加总损失、速度/足高估计损失、高程图/后继重构损失、VAE KL、裁剪前梯度范数、学习率、单步奖励和本轮 transition 数；同时保留 `metrics.jsonl` 并写入 TensorBoard。JSON 的 `episode_rewards` 保存本轮分项奖励统计。原版 logger 只有一个可选追加文本入口，原任务不传该参数时输出不变。`Mean reward` / `Train/mean_reward` 是最近 100 个完成回合的累计奖励；`Mean step reward` / `Train/mean_step_reward` 和 JSON 的 `mean_reward` 是 rollout 中的单步平均奖励，不能直接比较。各项奖励按原 `LeggedRobot.reset_idx()` 的口径，累计已加权、按控制 dt 缩放的奖励，结束回合时除以配置的最大回合秒数，写入 `Episode/rew_*`。只有完成回合后才显示分项，未结束的回合累计值跨 rollout 保留。`rew_tracking_lin_vel`、`rew_tracking_ang_vel`、`rew_lin_vel_z`、`rew_ang_vel_xy`、`rew_dof_acc` 使用原仓库熟悉的命名，其余保留 PIE 奖励名。`PIE/vae_kl_loss` 是潜变量正则项。随机初始超时计数不计入已采集的回合长度。
+启动时打印 Actor、Critic、本体 MLP、深度 CNN、Transformer、GRU、各估计头及解码器。训练终端调用原版 RSL-RL `OnPolicyRunner.log()`，保留原版速度、采集/更新时间、噪声标准差、回合奖励/长度，以及全部 10 个 PIE 奖励项的 `Mean episode rew_*`。同一张表中追加总损失、速度/足高估计损失、高程图/后继重构损失、VAE KL、策略 KL、裁剪前梯度范数、学习率、单步奖励和本轮 transition 数；同时保留 `metrics.jsonl` 并写入 TensorBoard。JSON 的 `episode_rewards` 保存本轮分项奖励统计。原版 logger 只有一个可选追加文本入口，原任务不传该参数时输出不变。`Mean reward` / `Train/mean_reward` 是最近 100 个完成回合的累计奖励；`Mean step reward` / `Train/mean_step_reward` 和 JSON 的 `mean_reward` 是 rollout 中的单步平均奖励，不能直接比较。各项奖励按原 `LeggedRobot.reset_idx()` 的口径，累计已加权、按控制 dt 缩放的奖励，结束回合时除以配置的最大回合秒数，写入 `Episode/rew_*`。只有完成回合后才显示分项，未结束的回合累计值跨 rollout 保留。`rew_tracking_lin_vel`、`rew_tracking_ang_vel`、`rew_lin_vel_z`、`rew_ang_vel_xy`、`rew_dof_acc` 使用原仓库熟悉的命名，其余保留 PIE 奖励名。`PIE/vae_kl_loss` 是潜变量正则项；`PIE/policy_kl` 是策略变化量，用于adaptive学习率调度，两者分别记录。随机初始超时计数不计入已采集的回合长度。
 
-当前实际奖励由 `legged_gym/pie/sensors_and_rollout.py::_reward` 计算，以下系数在 `reward_scale_dt=True` 时还乘以控制 dt；日志并未更改这些公式或系数。
+当前实际奖励由 `legged_gym/pie/sensors_and_rollout.py::_reward` 计算，以下系数在 `reward_scale_dt=True` 时还乘以控制 dt。已恢复原版 `only_positive_rewards=True`，总奖励小于0时截成0；分项日志仍记录加权的正负项。10项PIE权重保留，详见正式审查中的奖励边界。
 
 | 奖励项 | 日志名 | 系数 |
 | --- | --- | --- |
@@ -54,7 +74,7 @@ PhysX 直接继承原版 `LeggedRobotCfg.sim.physx`，使用 `max_gpu_contact_pa
 
 2026-10-01 完成静态代码审查并修复原生配置/时间步长同步、动作延迟上限、非有限奖励和异常清理等问题。此次未执行上述运行命令。[完整审查记录](docs/code_review_2026-10-01.md)。`Lite3PIE` 在创建 actor 前将 `cfg.pie` 的最终 URDF、机器人控制、摩擦/质量随机化和物理步长写入父类使用的配置。
 
-环境为 Python 3.8、Torch 2.4.1、Isaac Gym Preview 4、Warp 1.6.2、项目内 rsl_rl v1.0.2。新增依赖只装在新环境。`environment.pie.yml` 是配方，SDK 需从 NVIDIA 单独安装。当前 SDK 为 `/home/asuka/isaacgym/python`。rsl_rl 必须先于父项目 editable 安装。Isaac Gym native binding 必须先于 Torch 导入。
+环境为 Python 3.8、Torch 2.4.1、Isaac Gym Preview 4、Warp 1.6.2、项目内 rsl_rl v1.0.2。新增依赖只装在新环境。`environment.pie.yml` 是配方，SDK 需从 NVIDIA 单独安装。服务器 SDK 为 `/home/ubuntu/isaac/isaacgym1/isaacgym/python`，本地SDK路径可不同。rsl_rl 必须先于父项目 editable 安装。Isaac Gym native binding 必须先于 Torch 导入。
 
 ## 修改位置
 
@@ -78,4 +98,4 @@ PhysX 直接继承原版 `LeggedRobotCfg.sim.physx`，使用 `max_gpu_contact_pa
 
 修改本体历史长度或高程图网格时，需要同步模型的 history、heightmap/critic 维数。原生 critic 观测大小随网格更新，训练与回放入口会检查模型配置是否匹配实际观测。
 
-本次 v1.0.2 迁移仅核查代码、AST 语法、安装元数据与 diff 格式，未运行测试、仿真、回放或训练。此前短更新/回放结果只适用于旧实现。网络尺寸和损失权重保留；动作噪声改用 v1.0.2 原生 `std` 参数，使用正值边界。旧 `policy.actor/critic/log_std` checkpoint 权重有转换入口，但本次未验证加载。PIE optimizer resume、ONNX 导出和 GUI 可视化未实现；原真机部署脚本不适用于新增网络。详细接口见 [rsl_rl PIE 扩展说明](rsl_rl/PIE_EXTENSION.md)。
+2026-10-01迁移的历史结果见审查记录；2026-10-02正式配置修订完成CPU检查，未启动GPU训练。网络尺寸和辅助损失权重保留；使用v1.0.2原生 `std` 参数，初始值恢复1.0，撤销人为探索上下界，保留数值正值保护。旧 `policy.actor/critic/log_std` 权重有转换入口，但旧2.2.4 Adam参数化不能续用。当前v1.0.2 PIE checkpoint已支持optimizer续训；ONNX导出和PIE交互viewer未实现，原真机部署脚本不适用于新增网络。详细接口见 [rsl_rl PIE 扩展说明](rsl_rl/PIE_EXTENSION.md)。

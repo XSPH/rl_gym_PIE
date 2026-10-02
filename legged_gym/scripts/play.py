@@ -20,9 +20,11 @@ def play(args):
         if args.checkpoint_file is None:
             raise ValueError("PIE play requires --checkpoint_file")
         env_cfg.pie.randomization.enabled = False
+        env_cfg.pie.observation_noise = False
         env_cfg.pie.terrain.curriculum = False
         env_cfg.domain_rand.randomize_friction = False
         env_cfg.domain_rand.randomize_base_mass = False
+        env_cfg.domain_rand.push_robots = False
         env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
         try:
             print(json.dumps(evaluate(env, args.checkpoint_file, steps=args.steps), indent=2))

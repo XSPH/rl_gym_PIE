@@ -57,7 +57,10 @@ class PIERolloutStorage(RolloutStorage):
             self.rewards[:, :, 0], self.values[:, :, 0], stack("next_values"),
             stack("terminated"), stack("truncated"), gamma, lam)
         self.returns.copy_(returns.unsqueeze(-1))
-        normalized = (advantages - advantages.mean()) / advantages.std(unbiased=False).clamp_min(1e-6)
+        # Match native v1.0.2 sample-standard-deviation normalization. A
+        # one-transition smoke check has no sample variance, so use zero there.
+        deviation = advantages.std() if advantages.numel() > 1 else advantages.new_zeros(())
+        normalized = (advantages - advantages.mean()) / (deviation + 1e-8)
         self.advantages.copy_(normalized.unsqueeze(-1))
 
     def as_batch(self):
@@ -76,4 +79,3 @@ class PIERolloutStorage(RolloutStorage):
         super().clear()
         self.frames = []
         self.initial_hidden = None
-

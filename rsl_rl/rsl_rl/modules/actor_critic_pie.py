@@ -20,7 +20,7 @@ class ModelConfig:
     map_latent_dim: int = 32
     transformer_heads: int = 4
     transformer_layers: int = 1
-    initial_std: float = 0.5
+    initial_std: float = 1.0
     # Reproduction choices, with evidence/rationale in PIE_NETWORK.md.
     proprio_hidden_dims: Tuple[int, ...] = (512, 256)
     cnn_hidden_channels: Tuple[int, int] = (32, 64)
@@ -162,7 +162,7 @@ class PIEActorCritic(ActorCritic):
     @property
     def log_std(self):
         """Compatibility view; the learnable parameter is v1.0.2's native std."""
-        return self.std.clamp(min=0.006737946999085467, max=7.38905609893065).log()
+        return self.std.clamp_min(torch.finfo(self.std.dtype).eps).log()
 
     def load_state_dict(self, state_dict, strict=True):
         # Previous minimal checkpoints wrapped the 2.2.4 ActorCritic in policy.
@@ -203,7 +203,7 @@ class PIEActorCritic(ActorCritic):
         estimates, hidden = self.encode(obs, hidden, reset_mask)
         mean = self.actor(torch.cat((obs["proprio"], self.features(estimates)), dim=-1))
         # distribution is an attribute in v1.0.2; keep its probability API.
-        scale = self.std.clamp(min=0.006737946999085467, max=7.38905609893065)
+        scale = self.std.clamp_min(torch.finfo(self.std.dtype).eps)
         self.distribution = Normal(mean, scale, validate_args=False)
         return self.distribution, hidden, estimates
 

@@ -26,7 +26,7 @@ class RobotConfig:
     kp: float = 30.0
     kd: float = 0.8
     action_scale: float = 0.25
-    action_clip: float = 4.0
+    action_clip: float = 100.0
     torque_limit: float = 30.5
 
 
@@ -58,7 +58,7 @@ class TerrainConfig:
     spacing: float = 2.0
     resolution: float = 0.05
     floor_height: float = -2.0
-    initial_max_level: int = 1
+    initial_max_level: int = 5
     curriculum: bool = True
     max_gap: float = 1.0
     max_step: float = 0.75
@@ -85,7 +85,7 @@ class RandomizationConfig:
 
 @dataclass
 class EnvConfig:
-    num_envs: int = 2
+    num_envs: int = 4096
     device: str = "cuda:0"
     seed: int = 1
     headless: bool = True
@@ -93,14 +93,14 @@ class EnvConfig:
     decimation: int = 4
     episode_seconds: float = 20.0
     proprio_history: int = 10
-    command_seconds: float = 5.0
+    command_seconds: float = 10.0
     forward_velocity: List[float] = field(default_factory=lambda: [0.0, 1.5])
     yaw_velocity: List[float] = field(default_factory=lambda: [-1.2, 1.2])
     command_mode: str = "velocity"
     angular_velocity_scale: float = 0.25
     joint_velocity_scale: float = 0.05
     heightmap_offset: float = 0.5
-    observation_noise: bool = False
+    observation_noise: bool = True
     reward_scale_dt: bool = True
     robot: RobotConfig = field(default_factory=RobotConfig)
     camera: CameraConfig = field(default_factory=CameraConfig)

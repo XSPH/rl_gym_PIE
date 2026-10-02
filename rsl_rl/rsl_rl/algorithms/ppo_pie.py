@@ -1,22 +1,33 @@
 """PIE recurrent joint estimator/PPO extension of RSL-RL v1.0.2."""
 from dataclasses import dataclass
+from typing import Optional
+import math
 import torch
 from .ppo import PPO
 from rsl_rl.storage.rollout_storage_pie import PIERolloutStorage, gae
 
 @dataclass
 class PPOConfig:
-    learning_rate: float = 3e-4
+    learning_rate: float = 1e-3
     gamma: float = 0.99
     gae_lambda: float = 0.95
     clip: float = 0.2
-    epochs: int = 2
-    minibatches: int = 2
+    epochs: int = 5
+    minibatches: int = 4
     entropy_weight: float = 0.01
     value_weight: float = 1.0
     estimation_weight: float = 1.0
     kl_weight: float = 1.0
     max_grad_norm: float = 1.0
+    schedule: str = "adaptive"
+    desired_kl: Optional[float] = 0.01
+
+    def __post_init__(self):
+        if self.schedule not in ("fixed", "adaptive"):
+            raise ValueError("schedule must be fixed or adaptive")
+        if self.desired_kl is not None and (
+                not math.isfinite(self.desired_kl) or self.desired_kl <= 0):
+            raise ValueError("desired_kl must be positive and finite, or None")
 
 def clone_observation(obs):
     return {key: value.detach().clone() for key, value in obs.items()
@@ -41,7 +52,7 @@ class PIEPPO(PPO):
             clip_param=c.clip, gamma=c.gamma, lam=c.gae_lambda,
             value_loss_coef=c.value_weight, entropy_coef=c.entropy_weight,
             learning_rate=c.learning_rate, max_grad_norm=c.max_grad_norm,
-            use_clipped_value_loss=True, schedule="fixed", desired_kl=None,
+            use_clipped_value_loss=True, schedule=c.schedule, desired_kl=c.desired_kl,
             device=device or str(next(actor_critic.parameters()).device))
         self.model = self.actor_critic
 
@@ -92,7 +103,7 @@ class PIEPPO(PPO):
                 successor = next_obs["proprio"]
             valid = torch.isfinite(stored["proprio"]).all(-1)
             successor_valid = torch.isfinite(successor).all(-1)
-            self.storage.add_frame({
+            frame = {
                 "obs": stored, "targets": targets, "actions": actions.detach().clone(),
                 "old_logp": logp.detach().clone(), "values": values.detach().clone(),
                 "rewards": rewards.detach().clone(), "next_values": next_values.detach().clone(),
@@ -101,8 +112,12 @@ class PIEPPO(PPO):
                 "terminated": terminated, "truncated": truncated,
                 "successor": successor.detach().clone(), "valid": valid,
                 "successor_valid": successor_valid,
-                "reset": reset_mask.detach().clone()},
-                self.model.action_mean.detach(), self.model.action_std.detach())
+                "reset": reset_mask.detach().clone()}
+            self.storage.add_frame(
+                frame, self.model.action_mean.detach(), self.model.action_std.detach())
+            # Reuse native rollout tensors for the behavior policy distribution.
+            frame["old_mu"] = self.storage.mu[self.storage.step - 1]
+            frame["old_sigma"] = self.storage.sigma[self.storage.step - 1]
             obs, hidden = next_obs, next_hidden.detach()
             reset_mask = terminated | truncated
         self.compute_returns()
@@ -123,11 +138,20 @@ class PIEPPO(PPO):
                 self.num_learning_epochs):
             hidden = batch["hidden"][ids]
             logps, entropies, values, aux = [], [], [], []
+            policy_kls = []
             for frame in frames:
                 obs = {k: v[ids] for k, v in frame["obs"].items()}
                 logp, entropy, value, hidden, estimates = self.model.evaluate(
                     obs, hidden, frame["actions"][ids], frame["reset"][ids])
                 logps.append(logp); entropies.append(entropy); values.append(value)
+                with torch.inference_mode():
+                    mu, sigma = self.model.action_mean, self.model.action_std
+                    old_mu, old_sigma = frame["old_mu"][ids], frame["old_sigma"][ids]
+                    # Match v1.0.2 PPO: sum over actions, then average time/envs.
+                    policy_kls.append(torch.sum(
+                        torch.log(sigma / old_sigma + 1.e-5)
+                        + (old_sigma.square() + (old_mu - mu).square())
+                        / (2.0 * sigma.square()) - 0.5, dim=-1))
                 targets = {k: v[ids] for k, v in frame["targets"].items()}
                 aux.append(self.model.auxiliary_losses(
                     estimates, targets, frame["successor"][ids], frame["valid"][ids],
@@ -150,16 +174,26 @@ class PIEPPO(PPO):
                      + self.cfg.estimation_weight * (estimation + self.cfg.kl_weight * losses["kl"]))
             if not torch.isfinite(total):
                 raise FloatingPointError("non-finite PPO/estimator loss")
+            policy_kl = torch.stack(policy_kls).mean()
+            if self.desired_kl is not None and self.schedule == "adaptive":
+                if policy_kl > self.desired_kl * 2.0:
+                    self.learning_rate = max(1e-5, self.learning_rate / 1.5)
+                elif policy_kl < self.desired_kl / 2.0 and policy_kl > 0.0:
+                    self.learning_rate = min(1e-2, self.learning_rate * 1.5)
+                for param_group in self.optimizer.param_groups:
+                    param_group["lr"] = self.learning_rate
             self.optimizer.zero_grad(set_to_none=True)
             total.backward()
             grad_norm = torch.nn.utils.clip_grad_norm_(
                 self.model.parameters(), self.max_grad_norm, error_if_nonfinite=True)
             self.optimizer.step()
             with torch.no_grad():
-                self.model.std.clamp_(min=0.006737946999085467, max=7.38905609893065)
+                # Numerical positivity safeguard, not a tuned exploration range.
+                self.model.std.clamp_(min=torch.finfo(self.model.std.dtype).eps)
             records.append({**{k: float(v.detach()) for k, v in losses.items()},
                 "loss": float(total.detach()), "policy": float(policy.detach()),
-                "value": float(value_loss.detach()), "grad_norm": float(grad_norm.detach())})
+                "value": float(value_loss.detach()), "grad_norm": float(grad_norm.detach()),
+                "policy_kl": float(policy_kl)})
         return {key: sum(r[key] for r in records)/len(records) for key in records[0]}
 
     @torch.no_grad()
@@ -177,4 +211,3 @@ class PIEPPO(PPO):
         reset_mask = final["terminated"] | final["truncated"]
         hidden = hidden * (~reset_mask).unsqueeze(-1)
         return hidden.detach(), reset_mask.detach().clone()
-

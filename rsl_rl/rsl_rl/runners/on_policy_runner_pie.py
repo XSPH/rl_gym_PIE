@@ -15,8 +15,8 @@ from rsl_rl.algorithms.ppo_pie import PPOConfig
 @dataclass
 class PIERunnerCfg:
     """Task-level network, joint PPO settings and checkpoint schedule."""
-    seed: int = 0
-    num_steps_per_env: int = 8
+    seed: int = 1
+    num_steps_per_env: int = 24
     max_iterations: int = 15000
     save_interval: int = 500
     experiment_name: str = "lite3_pie"
@@ -31,7 +31,7 @@ def seed_everything(seed):
 
 class PIEOnPolicyRunner(OnPolicyRunner):
     """Native RSL factories/storage/optimizer with PIE dict observations and labels."""
-    def __init__(self, env, train_cfg, log_dir="runs/minimal", device=None):
+    def __init__(self, env, train_cfg, log_dir="runs/lite3_pie", device=None):
         device = torch.device(device or env.device)
         if device.type == "cuda" and device.index is None:
             device = torch.device("cuda", torch.cuda.current_device())
@@ -62,6 +62,12 @@ class PIEOnPolicyRunner(OnPolicyRunner):
         train_cfg.model.validate_observation(self._observation, env.num_actions)
         self._hidden = self.alg.actor_critic.initial_state(env.num_envs)
         self._reset_mask = torch.ones(env.num_envs, dtype=torch.bool, device=self.device)
+        print("PIE training: envs={}, rollout={}, epochs={}, minibatches={}, lr={}, "
+              "schedule={}, desired_kl={}, initial_std={}, target_iterations={}, save_interval={}".format(
+                  env.num_envs, train_cfg.num_steps_per_env, train_cfg.ppo.epochs,
+                  train_cfg.ppo.minibatches, train_cfg.ppo.learning_rate,
+                  train_cfg.ppo.schedule, train_cfg.ppo.desired_kl,
+                  train_cfg.model.initial_std, train_cfg.max_iterations, train_cfg.save_interval))
 
     def _reset_env(self):
         # Stock VecEnv.reset returns a pair; PIE retains sensor history and labels.
@@ -124,6 +130,9 @@ class PIEOnPolicyRunner(OnPolicyRunner):
             self._log_pie_iteration(last, target_iteration, ep_infos)
             if output is not None and self.current_learning_iteration % self.save_interval == 0:
                 self.save(output / "model_{}.pt".format(self.current_learning_iteration))
+            # Drop the caller's camera-trajectory reference before the next
+            # collect() clears storage. Otherwise two full image rollouts coexist.
+            del batch
         if output is not None:
             checkpoint = output / "checkpoint.pt"
             self.save(checkpoint)
@@ -191,6 +200,7 @@ class PIEOnPolicyRunner(OnPolicyRunner):
             ("Height map reconstruction loss:", "heightmap"),
             ("Successor reconstruction loss:", "successor"),
             ("VAE KL loss:", "kl"),
+            ("Policy KL divergence:", "policy_kl"),
             ("Gradient norm before clipping:", "grad_norm"),
             ("Learning rate:", "learning_rate"),
             ("Mean step reward:", "mean_reward"),
@@ -221,6 +231,7 @@ class PIEOnPolicyRunner(OnPolicyRunner):
             "PIE/velocity_loss": "velocity", "PIE/foot_clearance_loss": "foot_clearance",
             "PIE/heightmap_loss": "heightmap", "PIE/successor_loss": "successor",
             "PIE/vae_kl_loss": "kl", "PIE/gradient_norm_before_clipping": "grad_norm",
+            "PIE/policy_kl": "policy_kl",
             "Episode/terrain_level": "terrain_level",
             "Terrain/min_level": "terrain_level_min", "Terrain/max_level": "terrain_level_max",
         }
@@ -240,6 +251,7 @@ class PIEOnPolicyRunner(OnPolicyRunner):
             "model_config": asdict(self.pie_cfg.model), "ppo_config": asdict(self.pie_cfg.ppo),
             "iterations": self.current_learning_iteration, "seed": self.pie_cfg.seed,
             "environment_config": environment_cfg, "torch_rng": torch.get_rng_state(),
+            "total_timesteps": self.tot_timesteps, "total_time": self.tot_time,
             "rsl_rl_base": "v1.0.2", "pie_checkpoint_version": 2,
         }
         path = Path(path)
@@ -252,16 +264,38 @@ class PIEOnPolicyRunner(OnPolicyRunner):
                 temporary.unlink()
 
     def load(self, path, load_optimizer=True):
-        if load_optimizer:
-            raise NotImplementedError("PIE optimizer/episode resume is not implemented; use load_optimizer=False for weights.")
         saved = torch.load(path, map_location=self.device, weights_only=True)
-        if asdict(ModelConfig(**saved["model_config"])) != asdict(self.pie_cfg.model):
+        stored_config = asdict(ModelConfig(**saved["model_config"]))
+        current_config = asdict(self.pie_cfg.model)
+        # Initial exploration is a fresh-run setting; the learned std is a
+        # checkpoint weight and must survive resuming a previous run.
+        stored_config.pop("initial_std")
+        current_config.pop("initial_std")
+        if stored_config != current_config:
             raise ValueError("Checkpoint model configuration does not match this task")
+        if load_optimizer and saved.get("rsl_rl_base") != "v1.0.2":
+            raise ValueError("Optimizer resume requires a v1.0.2 PIE checkpoint; "
+                             "use load_optimizer=False to migrate older weights.")
         self.alg.actor_critic.load_state_dict(
             saved["model_state_dict"] if "model_state_dict" in saved else saved["model"])
+        if load_optimizer:
+            self.alg.optimizer.load_state_dict(
+                saved["optimizer_state_dict"] if "optimizer_state_dict" in saved else saved["optimizer"])
+            self.alg.learning_rate = float(self.alg.optimizer.param_groups[0]["lr"])
+        self.current_learning_iteration = int(saved.get("iter", saved.get("iterations", 0)))
+        self.tot_timesteps = int(saved.get("total_timesteps", 0))
+        self.tot_time = float(saved.get("total_time", 0.0))
+        if "torch_rng" in saved:
+            torch.set_rng_state(saved["torch_rng"].cpu())
+        # Like native RSL-RL resume, restart simulation episodes. Simulator,
+        # camera queues and GRU state are not restored from this checkpoint.
         self._reset_env()
         self._hidden = self.alg.actor_critic.initial_state(self.env.num_envs)
         self._reset_mask.fill_(True)
+        for name in ("_episode_reward_sum", "_episode_step_count", "_reward_buffer",
+                     "_length_buffer", "_reward_term_sums"):
+            if hasattr(self, name):
+                delattr(self, name)
         return saved.get("infos")
 
     def get_inference_policy(self, device=None):
@@ -295,9 +329,9 @@ class PIEOnPolicyRunner(OnPolicyRunner):
             "2ad79cf0caa85b91721abfe358105f869a784121\n")
 
 
-def train(env, iterations=1, rollout_steps=8, output_dir="runs/minimal",
-          seed=0, model_config=None, ppo_config=None, init_at_random_ep_len=False):
-    """Bounded convenience entry; uses the same native-derived PIE runner."""
+def train(env, iterations=15000, rollout_steps=24, output_dir="runs/lite3_pie",
+          seed=1, model_config=None, ppo_config=None, init_at_random_ep_len=True):
+    """Convenience entry with the same formal defaults as the registered task."""
     cfg = PIERunnerCfg(seed=seed, max_iterations=iterations,
                        num_steps_per_env=rollout_steps,
                        model=model_config or ModelConfig(),
@@ -325,4 +359,4 @@ def evaluate(env, checkpoint, steps=20):
         reset_mask = terminated | truncated
     return {"steps": steps, "mean_reward": sum(rewards)/len(rewards),
             "terminations": terminated_count, "timeouts": timeout_count,
-            "claim": "untrained/minimally trained plumbing check; not paper performance"}
+            "claim": "bounded checkpoint evaluation; not a paper-performance benchmark"}

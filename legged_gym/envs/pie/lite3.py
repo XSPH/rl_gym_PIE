@@ -29,6 +29,9 @@ class Lite3PIE(LeggedRobot, PIESensorsAndRollout):
         cfg.control.damping = {'joint': self.config.robot.kd}
         cfg.control.action_scale = self.config.robot.action_scale
         cfg.control.decimation = self.config.decimation
+        cfg.noise.add_noise = self.config.observation_noise
+        cfg.commands.resampling_time = self.config.command_seconds
+        cfg.normalization.clip_actions = self.config.robot.action_clip
         randomization = self.config.randomization
         cfg.domain_rand.randomize_friction = randomization.enabled
         cfg.domain_rand.friction_range = list(randomization.friction)

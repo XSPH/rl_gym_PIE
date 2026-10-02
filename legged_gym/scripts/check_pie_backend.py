@@ -38,6 +38,7 @@ def main():
     cfg.pie.terrain.kinds = ["flat"]
     cfg.pie.terrain.levels = cfg.pie.terrain.variants = 1
     cfg.pie.randomization.enabled = False
+    cfg.pie.observation_noise = False
     cfg.domain_rand.randomize_friction = cfg.domain_rand.randomize_base_mass = False
     sim = gymapi.SimParams()
     sim.dt = cfg.pie.physics_dt

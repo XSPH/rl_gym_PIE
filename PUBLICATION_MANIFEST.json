@@ -26,9 +26,9 @@
     },
     {
       "path": "PIE_NETWORK.md",
-      "bytes": 7078,
+      "bytes": 7549,
       "mode": "100644",
-      "sha256": "89ee93506443fd65fa5ca59edf78cfb5ba9dd59ae6fbd83dd61b4d3eb263d7f4"
+      "sha256": "f8cb5da4cbc3fd9a152532240bff45ee1818a3753e911167ad0cf942310f52ba"
     },
     {
       "path": "PUBLICATION.md",
@@ -44,9 +44,9 @@
     },
     {
       "path": "README_PIE.md",
-      "bytes": 8720,
+      "bytes": 10048,
       "mode": "100644",
-      "sha256": "b6128cb2546f7f19808c3e89730ae7739c2bf4566da0bece5aac0a8b28ccd71c"
+      "sha256": "bb27fb3876d19c0112a08b9abd32b184e96dbe7056d8f00ccf8e18624de879e1"
     },
     {
       "path": "README_zh.md",
@@ -217,6 +217,12 @@
       "sha256": "dfbd996306be59a6add3cbe35d76cb81e0f2228c87bf55de0ebb940833f725af"
     },
     {
+      "path": "docs/formal_training_review_2026-10-02.md",
+      "bytes": 15739,
+      "mode": "100644",
+      "sha256": "7da8f38aa9b20a174d06a3b86adf06ef380f756100ef54b4c9f24a9edbb724a7"
+    },
+    {
       "path": "docs/implementation_plan.md",
       "bytes": 2189,
       "mode": "100644",
@@ -356,15 +362,15 @@
     },
     {
       "path": "legged_gym/envs/pie/lite3.py",
-      "bytes": 5434,
+      "bytes": 5632,
       "mode": "100644",
-      "sha256": "028d75651cbd337f08df7a6b8da124da8a198693770d55f6bb8c4c8f50b2d5aa"
+      "sha256": "37eb6a6b19458bbce1480203a8fdbe31c6a63d932d796076ee956294643261ef"
     },
     {
       "path": "legged_gym/envs/pie/lite3_config.py",
-      "bytes": 2322,
+      "bytes": 3389,
       "mode": "100644",
-      "sha256": "4740c7fceb393466356c9ecf7617bda6af3008919a73ae891b39cf921739e243"
+      "sha256": "90a94ab41ff6e6ec8836ecb6ad645274499b8cedeebb262e6c72f27a2d0d0825"
     },
     {
       "path": "legged_gym/pie/__init__.py",
@@ -374,9 +380,9 @@
     },
     {
       "path": "legged_gym/pie/config.py",
-      "bytes": 7444,
+      "bytes": 7449,
       "mode": "100644",
-      "sha256": "cd1cde39b49ba3fb1a28d74f7ce2658bb55949c9ba4d84cc7a8c650a0adea0d1"
+      "sha256": "62684428eb2e2b4c808ff1da865c1e5f96636b40db73fc60ca4512dc59558f8f"
     },
     {
       "path": "legged_gym/pie/kinematics.py",
@@ -404,9 +410,9 @@
     },
     {
       "path": "legged_gym/pie/sensors_and_rollout.py",
-      "bytes": 18919,
+      "bytes": 20985,
       "mode": "100644",
-      "sha256": "9f73e2cfa294c02e1a4d99df9a4397687dd48d99e325acba6ebffc40f0a3fdaf"
+      "sha256": "e595b6fef5e34d95a36ca86df1518584d463b8b3af40927ced5d8003e6248b00"
     },
     {
       "path": "legged_gym/pie/terrain.py",
@@ -422,21 +428,21 @@
     },
     {
       "path": "legged_gym/scripts/check_pie_backend.py",
-      "bytes": 2781,
+      "bytes": 2819,
       "mode": "100644",
-      "sha256": "7b03245fe1206f74b1a197f644a46d75d8d3ddf41b0b3d71af05a0d02215b5f0"
+      "sha256": "0d91bf9223a6ad46de097301d964925c4e974205c47fd8ed99a588b5718d2a2a"
     },
     {
       "path": "legged_gym/scripts/play.py",
-      "bytes": 2407,
+      "bytes": 2501,
       "mode": "100644",
-      "sha256": "986cce2b35c6e906d2587ccce331a05a8cc6e8e1a0fa869d32f8fe077e4b42e4"
+      "sha256": "a9d7594b9dd9a46d1302ffd3c8bc74d4c663e412b54a14a682996e6934386387"
     },
     {
       "path": "legged_gym/scripts/train.py",
-      "bytes": 627,
+      "bytes": 980,
       "mode": "100644",
-      "sha256": "ed51b8fd3682c179e58d3cb8d89323f4a984453549bfc92f441c405c92adcef5"
+      "sha256": "958ed18c0c0c2f2c5b700a7eec0c2aceb980c154db4f7c87afb1d4bbb2ac596f"
     },
     {
       "path": "legged_gym/utils/__init__.py",
@@ -470,9 +476,9 @@
     },
     {
       "path": "legged_gym/utils/task_registry.py",
-      "bytes": 6885,
+      "bytes": 6758,
       "mode": "100644",
-      "sha256": "64ba51410fd4dfeeab9bd7b613a6e4075b7c26e6f26ddd2d0e283d0786cd3439"
+      "sha256": "a96956d2fff68bbd0bc2d9eb7bf5126a0c3e3759edf75ac6a90a9cd6e4399698"
     },
     {
       "path": "legged_gym/utils/terrain.py",
@@ -1856,9 +1862,9 @@
     },
     {
       "path": "rsl_rl/PIE_EXTENSION.md",
-      "bytes": 4816,
+      "bytes": 5291,
       "mode": "100644",
-      "sha256": "ea62b4ae2ecce3c593e60a8e6d0acf4b8b0dc65399d48018009faf2e915454bc"
+      "sha256": "2e54adcc901fa43ebaafacd6b1cf93706cc8f98d10252ed634f5616da50e6bf4"
     },
     {
       "path": "rsl_rl/README.md",
@@ -1898,9 +1904,9 @@
     },
     {
       "path": "rsl_rl/rsl_rl/algorithms/ppo_pie.py",
-      "bytes": 9609,
+      "bytes": 11562,
       "mode": "100644",
-      "sha256": "832d42c4fa31f0efcc4d6fc70b90815cb6e95d22e858f0410168e68ae1f90129"
+      "sha256": "1aeee6352963fede934fc7a771dcc56afe962f35b9f3b06b9177116174808333"
     },
     {
       "path": "rsl_rl/rsl_rl/env/__init__.py",
@@ -1928,9 +1934,9 @@
     },
     {
       "path": "rsl_rl/rsl_rl/modules/actor_critic_pie.py",
-      "bytes": 13637,
+      "bytes": 13615,
       "mode": "100644",
-      "sha256": "b42c8b94b34be0df3109fb698ff4d64e1e4796b55fce9f431cb9e884b506f1a0"
+      "sha256": "a233da7b1b9f27b646e8f20cc20c35abb5ed4f820d31321d98ecb74844eb6a0b"
     },
     {
       "path": "rsl_rl/rsl_rl/modules/actor_critic_recurrent.py",
@@ -1952,9 +1958,9 @@
     },
     {
       "path": "rsl_rl/rsl_rl/runners/on_policy_runner_pie.py",
-      "bytes": 17572,
+      "bytes": 19789,
       "mode": "100644",
-      "sha256": "48cdef7f8040028214af75ea3c9cb5396bf46418255a66f708789b8367c9346c"
+      "sha256": "93c2aa9a0e04a315d3a720c5dd97724ef6c7fe3429703994a34cd2d9a567c5fd"
     },
     {
       "path": "rsl_rl/rsl_rl/storage/__init__.py",
@@ -1970,9 +1976,9 @@
     },
     {
       "path": "rsl_rl/rsl_rl/storage/rollout_storage_pie.py",
-      "bytes": 3792,
+      "bytes": 4009,
       "mode": "100644",
-      "sha256": "02882832355138e2800cf00cfea0f5d55c940fbd2f0f8b54034b3275b4b45308"
+      "sha256": "ae8a7d1e1536401ec32354591c845514e7113a515a1d01d0f2aa9ec616e84d9c"
     },
     {
       "path": "rsl_rl/rsl_rl/utils/__init__.py",
@@ -2006,9 +2012,21 @@
     },
     {
       "path": "tests/test_pie_checkpointing.py",
-      "bytes": 9215,
+      "bytes": 12261,
       "mode": "100644",
-      "sha256": "61f3e8bb9d5b792e537fa11afacb4a5414a5a3f0c5f3609b6e6c73d936c8fe47"
+      "sha256": "44c761462c00d496e12e99718ed5a3369f02ef763c02d5bb9ff04ea8ab8eaaf0"
+    },
+    {
+      "path": "tests/test_pie_observation_and_push.py",
+      "bytes": 5134,
+      "mode": "100644",
+      "sha256": "342fccc539499cc3ff5281864e65955fe96a57732a3e9c19320b52a1524761b3"
+    },
+    {
+      "path": "tests/test_pie_ppo_schedule.py",
+      "bytes": 9121,
+      "mode": "100644",
+      "sha256": "73bdbb05874c352d3387cf94df8f42dc24a5dca064d9c4be9254e25cadc3b110"
     },
     {
       "path": "tests/test_terrain_and_assets.py",

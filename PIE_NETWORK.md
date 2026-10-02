@@ -1,6 +1,6 @@
 # PIE 网络超参数决策
 
-日期：2026-10-01。两平台采用相同网络尺寸，各自在项目内保存实现与配置。本文确定复现基线，不声称恢复了 PIE 作者未公开的配置，也不声称经过收敛或速度验证。
+网络设计日期：2026-10-01；正式训练配置修订：2026-10-02。两平台采用相同网络尺寸，各自在项目内保存实现与配置。本文确定复现基线，不声称恢复了 PIE 作者未公开的配置，也不声称经过收敛或速度验证。
 
 ## 核实到的依据
 
@@ -29,7 +29,7 @@ LocoTransformer正文另有“hidden feature dimension 256”的描述；附录�
 | Critic | 235→512→256→128→1，隐藏ELU、末层线性 | 235=本体45+真实速度3+地形187；估值独立使用特权信息 |
 | 后继解码器 | 55→128→128→45，隐藏ELU、末层线性 | 55包含全部估计向量；两层128是工程选择，让辅助任务具备非线性重构能力，控制解码器规模 |
 | 地图解码器 | 32→128→128→187，隐藏ELU、末层线性 | 只读取地图latent，与PIE信息路径一致；不向actor提供真实高程图 |
-| 潜变量/动作随机性 | actor用VAE均值；后继重构用重参数化采样；logvar裁剪[-10,5]；动作初始std=0.5 | 均值供策略重算避免latent重采样改变概率比；裁剪为数值范围选择；std=0.5是保留的探索起点，非论文披露值 |
+| 潜变量/动作随机性 | actor用VAE均值；后继重构用重参数化采样；logvar裁剪[-10,5]；新训练动作初始std=1.0 | 均值供策略重算避免latent重采样改变概率比；裁剪为数值范围选择；初始std恢复原版1.0；不是PIE论文披露值，续训保留checkpoint中的已学习std |
 
 128维GRU并非简单地把Extreme Parkour网络缩小四倍。采用PyTorch GRU的参数公式
 `3H(I+H+2)`（含两组bias），本实现 `I=2176,H=128` 有 **885,504** 个参数；
@@ -43,8 +43,8 @@ LocoTransformer正文另有“hidden feature dimension 256”的描述；附录�
 
 网络宽度、CNN核/步幅/padding、token网格、Transformer FFN比例和dropout都已纳入各项目的 `ModelConfig`，由现有checkpoint的 `model_config=asdict(cfg)` 保存。默认层形状保持上述基线，旧checkpoint缺失的新字段补用这些默认值；加载兼容性本次未执行验证。模型配置会检查token/head整除、CNN层数、正维数和零dropout，避免形成不一致的网络。
 
-Isaac Gym在本地rsl_rl v1.0.2的ActorCritic上扩展，使用原生std参数；mjlab沿用独立rsl_rl 5.4.2 MLP实现和log_std参数。两者初始化分布相同，但动作噪声的优化参数化仍不同，这一点应在后续平台对照中记录。
+Isaac Gym在本地rsl_rl v1.0.2的ActorCritic上扩展，使用原生std参数；mjlab沿用独立rsl_rl 5.4.2的MLP与原生scalar GaussianDistribution。两边均直接优化逐动作std；mjlab保留该固定依赖的原生数值边界，Gym只保留dtype epsilon正值保护。旧mjlab log_std权重可转换用于评估，log-space Adam状态不能用于scalar-space续训。
 
-当前PPO设置仍是最小验证配置：学习率3e-4、gamma=0.99、lambda=0.95、clip=0.2、2个epoch和2个minibatch；单次短rollout不是经过确认的正式训练方案。网络配置可作为后续复现起点；本轮未启动训练、测试、仿真或回放，不能据此断言网络已收敛、视觉有效或达到论文成功率。
+当前PPO已恢复原版训练默认：学习率1e-3、5个epoch、4个minibatch、24步rollout、adaptive调度、策略KL目标0.01；gamma=0.99、lambda=0.95、clip=0.2。按用户要求两边使用4096环境、总计15000轮、每500轮保存。Gym恢复原版本体噪声/推扰/缩放；mjlab恢复原生Gaussian和运行统计归一化。上述数值是各上游项目的训练基线，不宣称由PIE论文给出。新增估计器的层宽与辅助损失权重保留；正式GPU训练没有在本次执行或验证，详见[正式训练审查](docs/formal_training_review_2026-10-02.md)。
 
 以后如果获准训练，优先观察地图重构误差、后继误差、KL及各头梯度，再依据证据逐项考虑GRU128→256、Transformer1→2层、地图latent32→64；这些是候选消融，不是当前已应用的改动。
