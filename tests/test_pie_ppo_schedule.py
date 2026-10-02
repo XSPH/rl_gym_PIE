@@ -207,3 +207,67 @@ def test_std_guard_only_enforces_numeric_positivity(monkeypatch):
     alg.update(batch)
     assert alg.model.std[0].item() == torch.finfo(alg.model.std.dtype).eps
     assert alg.model.std[1].item() == 20.0
+
+
+def test_visual_checkpoint_preserves_recurrent_joint_update(monkeypatch):
+    """Real PPO updates agree, including masked auxiliaries and GRU gradients."""
+    import rsl_rl.modules.actor_critic_pie as network
+    settings = PPOConfig(epochs=2, minibatches=2, schedule="fixed")
+    reference, reference_batch = _rollout(settings)
+    checkpointed, checkpointed_batch = _rollout(settings)
+
+    def direct_call(function, *args, **kwargs):
+        return function(*args)
+
+    torch.manual_seed(17)
+    with monkeypatch.context() as plain:
+        plain.setattr(network, "checkpoint", direct_call)
+        expected = reference.update(reference_batch)
+    torch.manual_seed(17)
+    actual = checkpointed.update(checkpointed_batch)
+
+    for key in expected:
+        assert actual[key] == pytest.approx(expected[key], rel=1e-5, abs=1e-7)
+    reference_parameters = dict(reference.model.named_parameters())
+    for name, parameter in checkpointed.model.named_parameters():
+        torch.testing.assert_close(parameter, reference_parameters[name], rtol=1e-5, atol=1e-7)
+        if reference_parameters[name].grad is not None:
+            torch.testing.assert_close(parameter.grad, reference_parameters[name].grad,
+                                       rtol=1e-5, atol=1e-7)
+    # Depth inputs never require gradients; the CNN must still receive them.
+    assert not checkpointed_batch["frames"][0]["obs"]["depth"].requires_grad
+    assert checkpointed.model.depth_encoder[0].weight.grad.abs().sum() > 0
+    assert checkpointed.model.gru.weight_hh.grad.abs().sum() > 0
+
+
+def test_visual_checkpoint_reduces_saved_activation_bytes(monkeypatch):
+    import rsl_rl.modules.actor_critic_pie as network
+    model = PIEActorCritic(ModelConfig()).train()
+    obs = {"proprio_history": torch.zeros(4, 10, 45),
+           "depth": torch.randn(4, 2, 60, 80)}
+    parameter_storages = {parameter.untyped_storage().data_ptr()
+                          for parameter in model.parameters()}
+
+    def retained_bytes():
+        saved = {}
+
+        def pack(tensor):
+            storage = tensor.untyped_storage()
+            # Parameters already exist, and views can share one allocation.
+            # Count activation storage rather than repeated references to weights.
+            if storage.data_ptr() not in parameter_storages:
+                saved[storage.data_ptr()] = storage.nbytes()
+            return tensor
+
+        with torch.autograd.graph.saved_tensors_hooks(pack, lambda tensor: tensor):
+            model.encode(obs, model.initial_state(4))
+        return sum(saved.values())
+
+    def direct_call(function, *args, **kwargs):
+        return function(*args)
+
+    with monkeypatch.context() as plain:
+        plain.setattr(network, "checkpoint", direct_call)
+        before = retained_bytes()
+    after = retained_bytes()
+    assert after < before * 0.6

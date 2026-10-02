@@ -4,6 +4,7 @@ from typing import Tuple
 import torch
 from torch import nn
 from torch.distributions import Normal
+from torch.utils.checkpoint import checkpoint
 from .actor_critic import ActorCritic
 
 @dataclass
@@ -183,7 +184,15 @@ class PIEActorCritic(ActorCritic):
         if reset_mask is not None:
             hidden = hidden * (~reset_mask.bool()).unsqueeze(-1)
         prop = self.proprio_encoder(obs["proprio_history"].flatten(1)).unsqueeze(1)
-        depth = self.depth_encoder(obs["depth"]).flatten(2).transpose(1, 2)
+        # A trajectory minibatch keeps 24 steps' recurrent graphs alive. Retaining
+        # every CNN activation at every step exceeds 24 GiB at 4096 environments.
+        # Recompute this pure encoder during backward, preserving full GRU BPTT.
+        # Non-reentrant checkpointing also trains the CNN when depth has no grad.
+        if self.training and torch.is_grad_enabled():
+            visual = checkpoint(self.depth_encoder, obs["depth"], use_reentrant=False)
+        else:
+            visual = self.depth_encoder(obs["depth"])
+        depth = visual.flatten(2).transpose(1, 2)
         tokens = self.transformer(torch.cat((prop, depth), dim=1) + self.position)
         hidden = self.gru(tokens.flatten(1), hidden)
         estimates = {

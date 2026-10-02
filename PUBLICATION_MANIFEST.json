@@ -247,6 +247,12 @@
       "sha256": "54044386c67f217edaa40b8b5d8760fe560a263adfda3f4fe3fc2036b0c4941d"
     },
     {
+      "path": "docs/ppo_memory_fix_2026-10-03.md",
+      "bytes": 1726,
+      "mode": "100644",
+      "sha256": "49c5bad896ac71e5387c7b48f5e5947bb86d19d6c2ed4eb21e44c705d89b4891"
+    },
+    {
       "path": "docs/rsl_rl_v1_pie_migration.md",
       "bytes": 2475,
       "mode": "100644",
@@ -1946,9 +1952,9 @@
     },
     {
       "path": "rsl_rl/rsl_rl/modules/actor_critic_pie.py",
-      "bytes": 13615,
+      "bytes": 14172,
       "mode": "100644",
-      "sha256": "a233da7b1b9f27b646e8f20cc20c35abb5ed4f820d31321d98ecb74844eb6a0b"
+      "sha256": "a5032ab9d430ec63c3774d946b451e79574ebd4a9e41bfa61edb3fc666e6d27c"
     },
     {
       "path": "rsl_rl/rsl_rl/modules/actor_critic_recurrent.py",
@@ -2042,9 +2048,9 @@
     },
     {
       "path": "tests/test_pie_ppo_schedule.py",
-      "bytes": 9121,
+      "bytes": 11966,
       "mode": "100644",
-      "sha256": "73bdbb05874c352d3387cf94df8f42dc24a5dca064d9c4be9254e25cadc3b110"
+      "sha256": "e65f0e8e5e010f9b545bb4189ae9af3e39625fa346ade25bcb8d9e4bec7268f4"
     },
     {
       "path": "tests/test_terrain_and_assets.py",
