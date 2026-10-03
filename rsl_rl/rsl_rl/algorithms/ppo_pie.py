@@ -4,7 +4,8 @@ from typing import Optional
 import math
 import torch
 from .ppo import PPO
-from rsl_rl.storage.rollout_storage_pie import PIERolloutStorage, gae
+from rsl_rl.storage.rollout_storage_pie import PIERolloutStorage
+from rsl_rl.modules.actor_critic_pie import PIEDepthFeatureCache
 
 @dataclass
 class PPOConfig:
@@ -29,185 +30,173 @@ class PPOConfig:
                 not math.isfinite(self.desired_kl) or self.desired_kl <= 0):
             raise ValueError("desired_kl must be positive and finite, or None")
 
-def clone_observation(obs):
-    return {key: value.detach().clone() for key, value in obs.items()
-            if key in ("proprio", "proprio_history", "depth", "critic")}
+    def as_native_kwargs(self):
+        return {
+            "num_learning_epochs": self.epochs, "num_mini_batches": self.minibatches,
+            "clip_param": self.clip, "gamma": self.gamma, "lam": self.gae_lambda,
+            "value_loss_coef": self.value_weight, "entropy_coef": self.entropy_weight,
+            "learning_rate": self.learning_rate, "max_grad_norm": self.max_grad_norm,
+            "schedule": self.schedule, "desired_kl": self.desired_kl,
+            "estimation_weight": self.estimation_weight, "kl_weight": self.kl_weight,
+        }
+
+def clone_observation(obs, depth_pool=None):
+    stored = {key: value.detach().clone() for key, value in obs.items()
+              if key in ("proprio", "proprio_history", "critic")}
+    if depth_pool is not None and "depth_frame_ids" in obs:
+        stored["depth_indices"] = depth_pool.add(obs["depth"], obs["depth_frame_ids"])
+    else:
+        stored["depth"] = obs["depth"].detach().clone()
+    return stored
+
 
 class PIEPPO(PPO):
-    """One optimizer jointly trains actor, critic, encoder, and estimators.
-
-    Actor gradients pass through the estimator as well as its supervised losses.
-    This is an explicit reproduction choice; the paper specifies concurrent
-    optimization without defining the optimizer/gradient boundary.
-    """
-    def __init__(self, actor_critic, cfg=None, device=None, pie_config=None):
-        if cfg is not None and pie_config is not None:
-            raise ValueError("Provide cfg or pie_config, not both")
-        self.cfg = cfg or PPOConfig(**(pie_config or {}))
-        c = self.cfg
-        if c.epochs < 1 or c.minibatches < 1:
-            raise ValueError("epochs/minibatches must be positive")
-        super().__init__(
-            actor_critic, num_learning_epochs=c.epochs, num_mini_batches=c.minibatches,
-            clip_param=c.clip, gamma=c.gamma, lam=c.gae_lambda,
-            value_loss_coef=c.value_weight, entropy_coef=c.entropy_weight,
-            learning_rate=c.learning_rate, max_grad_norm=c.max_grad_norm,
-            use_clipped_value_loss=True, schedule=c.schedule, desired_kl=c.desired_kl,
-            device=device or str(next(actor_critic.parameters()).device))
+    """PIE side inputs and recurrent replay within the native PPO lifecycle."""
+    def __init__(self, actor_critic, estimation_weight=1.0, kl_weight=1.0, **kwargs):
+        super().__init__(actor_critic, **kwargs)
+        self.estimation_weight = estimation_weight
+        self.kl_weight = kl_weight
         self.model = self.actor_critic
+        self._reset_mask = None
 
     def init_storage(self, num_envs, num_transitions_per_env, actor_obs_shape,
                      critic_obs_shape, action_shape):
+        # Playback may use one env with a saved four-minibatch training config.
+        # Actual training validates minibatch size when generating trajectories.
         self.storage = PIERolloutStorage(
             num_envs, num_transitions_per_env, actor_obs_shape, critic_obs_shape,
             action_shape, device=self.device)
+        self._reset_mask = torch.ones(num_envs, dtype=torch.bool, device=self.device)
+
+    def begin_rollout(self):
+        if self.storage.step:
+            raise RuntimeError("Previous rollout has not been updated and cleared")
+        self.model._visual_cache = PIEDepthFeatureCache()
 
     def act(self, obs, critic_obs):
-        raise RuntimeError("Use PIEPPO.collect for dict observations and pre-reset labels")
+        # Snapshot sensor labels before env.step can overwrite/reset them.
+        frame = {
+            "obs": clone_observation(obs, self.storage.depth_pool),
+            "targets": {name: value.detach().clone() for name, value in obs["targets"].items()},
+            "valid": torch.isfinite(obs["proprio"]).all(-1),
+            "reset": self._reset_mask.detach().clone(),
+        }
+        if self.model._hidden is None:
+            self.model._hidden = self.model.initial_state(obs["proprio"].shape[0])
+        actions = super().act(obs, critic_obs)
+        self.transition.observations = frame["obs"]["proprio"]
+        self.transition.critic_observations = frame["obs"]["critic"]
+        self.transition.pie_frame = frame
+        return actions
 
     def process_env_step(self, rewards, dones, infos):
-        raise RuntimeError("Use PIEPPO.collect for terminal/timeout-aware transitions")
-
-    def compute_returns(self, last_critic_obs=None):
-        self.storage.compute_returns(None, self.gamma, self.lam)
-
-    def test_mode(self):
-        self.actor_critic.eval()
-
-    @torch.no_grad()
-    def collect(self, env, obs, hidden, reset_mask, steps):
-        if steps < 1:
-            raise ValueError("rollout_steps must be positive")
-        if (self.storage is None or self.storage.num_envs != hidden.shape[0]
-                or self.storage.num_transitions_per_env != steps):
-            self.init_storage(hidden.shape[0], steps, [obs["proprio"].shape[-1]],
-                              [obs["critic"].shape[-1]], [self.model.cfg.action_dim])
-        self.storage.start(hidden)
-        for _ in range(steps):
-            stored = clone_observation(obs)
-            targets = {k: v.detach().clone() for k, v in obs["targets"].items()}
-            actions, logp, values, next_hidden = self.model.act(obs, hidden, reset_mask)
-            next_obs, rewards, terminated, truncated, info = env.step(actions)
-            terminated, truncated = terminated.bool().clone(), truncated.bool().clone()
-            next_values = self.model.value(next_obs)
-            if truncated.any():
-                final_obs = info.get("terminal_observation")
-                if final_obs is None:
-                    raise RuntimeError("time limits require terminal_observation BEFORE reset")
-                final_value = self.model.value(final_obs)
-                next_values = torch.where(truncated, final_value, next_values)
-            successor = info.get("terminal_proprio")
-            if successor is None:
-                if (terminated | truncated).any():
-                    raise RuntimeError("autoreset transitions require pre-reset terminal_proprio")
-                successor = next_obs["proprio"]
-            valid = torch.isfinite(stored["proprio"]).all(-1)
-            successor_valid = torch.isfinite(successor).all(-1)
-            frame = {
-                "obs": stored, "targets": targets, "actions": actions.detach().clone(),
-                "old_logp": logp.detach().clone(), "values": values.detach().clone(),
-                "rewards": rewards.detach().clone(), "next_values": next_values.detach().clone(),
-                "reward_terms": {name: value.detach().clone()
-                                 for name, value in info.get("reward_terms", {}).items()},
-                "terminated": terminated, "truncated": truncated,
-                "successor": successor.detach().clone(), "valid": valid,
-                "successor_valid": successor_valid,
-                "reset": reset_mask.detach().clone()}
-            self.storage.add_frame(
-                frame, self.model.action_mean.detach(), self.model.action_std.detach())
-            # Reuse native rollout tensors for the behavior policy distribution.
-            frame["old_mu"] = self.storage.mu[self.storage.step - 1]
-            frame["old_sigma"] = self.storage.sigma[self.storage.step - 1]
-            obs, hidden = next_obs, next_hidden.detach()
-            reset_mask = terminated | truncated
-        self.compute_returns()
-        batch = self.storage.as_batch()
-        return batch, obs, hidden, reset_mask
-
-    def update(self, batch=None):
-        """Minibatches contain whole environment trajectories, not shuffled steps."""
-        batch = self.storage.as_batch() if batch is None else batch
-        frames = batch["frames"]
-        batch_size = batch["hidden"].shape[0]
-        records = []
-        if self.cfg.epochs < 1 or self.cfg.minibatches < 1:
-            raise ValueError("epochs/minibatches must be positive")
-        self.model.train()
-        for ids in self.storage.trajectory_mini_batch_generator(
-                batch_size, batch["hidden"].device, self.num_mini_batches,
-                self.num_learning_epochs):
-            hidden = batch["hidden"][ids]
-            logps, entropies, values, aux = [], [], [], []
-            policy_kls = []
-            for frame in frames:
-                obs = {k: v[ids] for k, v in frame["obs"].items()}
-                logp, entropy, value, hidden, estimates = self.model.evaluate(
-                    obs, hidden, frame["actions"][ids], frame["reset"][ids])
-                logps.append(logp); entropies.append(entropy); values.append(value)
-                with torch.inference_mode():
-                    mu, sigma = self.model.action_mean, self.model.action_std
-                    old_mu, old_sigma = frame["old_mu"][ids], frame["old_sigma"][ids]
-                    # Match v1.0.2 PPO: sum over actions, then average time/envs.
-                    policy_kls.append(torch.sum(
-                        torch.log(sigma / old_sigma + 1.e-5)
-                        + (old_sigma.square() + (old_mu - mu).square())
-                        / (2.0 * sigma.square()) - 0.5, dim=-1))
-                targets = {k: v[ids] for k, v in frame["targets"].items()}
-                aux.append(self.model.auxiliary_losses(
-                    estimates, targets, frame["successor"][ids], frame["valid"][ids],
-                    frame["successor_valid"][ids]))
-            logps, entropies, values = torch.stack(logps), torch.stack(entropies), torch.stack(values)
-            old_logps = torch.stack([f["old_logp"][ids] for f in frames])
-            ratio = (logps - old_logps).exp()
-            advantage = batch["advantages"][:, ids]
-            policy = -torch.minimum(ratio * advantage,
-                ratio.clamp(1-self.clip_param, 1+self.clip_param) * advantage).mean()
-            old_values = torch.stack([f["values"][ids] for f in frames])
-            clipped_values = old_values + (values-old_values).clamp(-self.clip_param, self.clip_param)
-            returns = batch["returns"][:, ids]
-            value_loss = torch.maximum((values-returns).square(),
-                                       (clipped_values-returns).square()).mean()
-            losses = {k: torch.stack([a[k] for a in aux]).mean() for k in aux[0]}
-            estimation = sum(losses[k] for k in ("velocity", "foot_clearance", "heightmap", "successor"))
-            total = (policy + self.value_loss_coef * value_loss
-                     - self.entropy_coef * entropies.mean()
-                     + self.cfg.estimation_weight * (estimation + self.cfg.kl_weight * losses["kl"]))
-            if not torch.isfinite(total):
-                raise FloatingPointError("non-finite PPO/estimator loss")
-            policy_kl = torch.stack(policy_kls).mean()
-            if self.desired_kl is not None and self.schedule == "adaptive":
-                if policy_kl > self.desired_kl * 2.0:
-                    self.learning_rate = max(1e-5, self.learning_rate / 1.5)
-                elif policy_kl < self.desired_kl / 2.0 and policy_kl > 0.0:
-                    self.learning_rate = min(1e-2, self.learning_rate * 1.5)
-                for param_group in self.optimizer.param_groups:
-                    param_group["lr"] = self.learning_rate
-            self.optimizer.zero_grad(set_to_none=True)
-            total.backward()
-            grad_norm = torch.nn.utils.clip_grad_norm_(
-                self.model.parameters(), self.max_grad_norm, error_if_nonfinite=True)
-            self.optimizer.step()
+        frame = self.transition.pie_frame
+        done = dones.bool().flatten()
+        timeout = infos.get("time_outs", torch.zeros_like(done)).to(self.device).bool().flatten()
+        if (timeout & ~done).any():
+            raise ValueError("A timeout must also be an episode reset")
+        side = infos.get("pie", {})
+        successor = side.get("terminal_proprio")
+        if successor is None:
+            raise RuntimeError("PIE requires pre-reset terminal_proprio for every transition")
+        frame["raw_rewards"] = rewards.detach().clone()
+        frame["terminated"] = (done & ~timeout).detach().clone()
+        frame["truncated"] = timeout.detach().clone()
+        frame["successor"] = successor.detach().clone()
+        frame["successor_valid"] = torch.isfinite(successor).all(-1)
+        bootstrapped_rewards = rewards
+        if timeout.any():
+            terminal_critic = side.get("terminal_critic")
+            if terminal_critic is None:
+                raise RuntimeError("Timeouts require pre-reset terminal_critic")
             with torch.no_grad():
-                # Numerical positivity safeguard, not a tuned exploration range.
-                self.model.std.clamp_(min=torch.finfo(self.model.std.dtype).eps)
-            records.append({**{k: float(v.detach()) for k, v in losses.items()},
-                "loss": float(total.detach()), "policy": float(policy.detach()),
-                "value": float(value_loss.detach()), "grad_norm": float(grad_norm.detach()),
-                "policy_kl": float(policy_kl)})
-        return {key: sum(r[key] for r in records)/len(records) for key in records[0]}
+                terminal_value = self.model.evaluate(terminal_critic).squeeze(-1)
+            bootstrapped_rewards = rewards + self.gamma * terminal_value * timeout.to(rewards.dtype)
+        # Parent storage/GAE handles done trace boundaries. Remove time_outs so
+        # the original current-value bootstrap is not added a second time.
+        parent_infos = {key: value for key, value in infos.items() if key != "time_outs"}
+        super().process_env_step(bootstrapped_rewards, done, parent_infos)
+        self.transition.pie_frame = None
+        self._reset_mask = done.detach().clone()
+
+    def _mini_batch_generator(self):
+        batch = self.storage.as_batch()
+        frames = batch["frames"]
+        for ids in self.storage.trajectory_mini_batch_generator(
+                self.storage.num_envs, self.device, self.num_mini_batches, self.num_learning_epochs):
+            # The parent update owns PPO/optimizer equations. PIE changes only
+            # the forward batch: one complete time sequence per selected env.
+            actor_batch = {"frames": frames, "ids": ids, "hidden": batch["hidden"][ids],
+                           "depth_frames": batch["depth_frames"]}
+            def flatten(tensor):
+                return tensor[:, ids].flatten(0, 1)
+            yield (actor_batch, flatten(self.storage.privileged_observations),
+                   flatten(self.storage.actions), flatten(self.storage.values),
+                   flatten(self.storage.advantages), flatten(self.storage.returns),
+                   flatten(self.storage.actions_log_prob), flatten(self.storage.mu),
+                   flatten(self.storage.sigma), (None, None), None)
+
+    def _evaluate_batch(self, batch):
+        sequence = batch[0]
+        ids, hidden = sequence["ids"], sequence["hidden"]
+        visual_cache = PIEDepthFeatureCache()
+        logps, entropies, values, means, sigmas, auxiliary = [], [], [], [], [], []
+        for frame in sequence["frames"]:
+            obs = self.storage.observation(frame, ids)
+            visual = visual_cache.get(self.model, obs, sequence["depth_frames"])
+            logp, entropy, value, hidden, estimates = self.model.evaluate_actions(
+                obs, hidden, frame["actions"][ids], frame["reset"][ids], visual_features=visual)
+            logps.append(logp); entropies.append(entropy); values.append(value)
+            means.append(self.model.action_mean); sigmas.append(self.model.action_std)
+            targets = {key: tensor[ids] for key, tensor in frame["targets"].items()}
+            auxiliary.append(self.model.auxiliary_losses(
+                estimates, targets, frame["successor"][ids], frame["valid"][ids],
+                frame["successor_valid"][ids]))
+        losses = {key: torch.stack([entry[key] for entry in auxiliary]).mean()
+                  for key in auxiliary[0]}
+        return {
+            "logp": torch.stack(logps).flatten(0, 1),
+            "entropy": torch.stack(entropies).flatten(0, 1),
+            "value": torch.stack(values).flatten(0, 1).unsqueeze(-1),
+            "mu": torch.stack(means).flatten(0, 1),
+            "sigma": torch.stack(sigmas).flatten(0, 1),
+            "auxiliary": losses,
+            "cnn_encoded_stacks": visual_cache.encoded_stacks,
+            "cnn_dense_stacks": len(sequence["frames"]) * ids.numel(),
+        }
+
+    def _auxiliary_loss(self, evaluation):
+        losses = evaluation["auxiliary"]
+        estimation = sum(losses[key] for key in ("velocity", "foot_clearance", "heightmap", "successor"))
+        total = self.estimation_weight * (estimation + self.kl_weight * losses["kl"])
+        metrics = dict(losses)
+        metrics.update(cnn_encoded_stacks=evaluation["cnn_encoded_stacks"],
+                       cnn_dense_stacks=evaluation["cnn_dense_stacks"])
+        return total, metrics
+
+    def _after_optimizer_step(self):
+        with torch.no_grad():
+            self.model.std.clamp_(min=torch.finfo(self.model.std.dtype).eps)
 
     @torch.no_grad()
-    def refresh_hidden(self, batch):
-        """Replay this rollout under updated weights, retaining episode memory.
-
-        The detached rollout-start state is the truncated recurrent boundary.
-        Done masks reset only the corresponding episode. The successor
-        observation has not been encoded yet and belongs to the next rollout.
-        """
+    def _after_update(self):
+        batch = self.storage.as_batch()
+        frames = batch["depth_frames"]
+        if frames is not None:
+            self.metrics.update(
+                depth_unique_frames=frames.shape[0],
+                depth_pool_mib=frames.numel() * frames.element_size() / 2**20,
+                depth_dense_mib=(self.storage.num_transitions_per_env * self.storage.num_envs
+                                 * self.model.cfg.depth_history * frames[0].numel()
+                                 * frames.element_size() / 2**20))
+        self.metrics["cnn_reuse_fraction"] = (1.0 - self.metrics["cnn_encoded_stacks"]
+                                               / self.metrics["cnn_dense_stacks"])
+        # Keep episode memory across optimizer updates, with current weights.
         hidden = batch["hidden"].detach().clone()
+        visual_cache = PIEDepthFeatureCache()
         for frame in batch["frames"]:
-            _, hidden = self.model.encode(frame["obs"], hidden, frame["reset"])
-        final = batch["frames"][-1]
-        reset_mask = final["terminated"] | final["truncated"]
-        hidden = hidden * (~reset_mask).unsqueeze(-1)
-        return hidden.detach(), reset_mask.detach().clone()
+            obs = self.storage.observation(frame)
+            visual = visual_cache.get(self.model, obs, batch["depth_frames"])
+            _, hidden = self.model.encode(obs, hidden, frame["reset"], visual_features=visual)
+        self.model._hidden = (hidden * (~self._reset_mask).unsqueeze(-1)).detach()
+        self.model._visual_cache = PIEDepthFeatureCache()

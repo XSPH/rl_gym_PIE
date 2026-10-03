@@ -1,5 +1,5 @@
 """PIE estimator and asymmetric actor-critic. No simulator imports."""
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Tuple
 import torch
 from torch import nn
@@ -22,6 +22,7 @@ class ModelConfig:
     transformer_heads: int = 4
     transformer_layers: int = 1
     initial_std: float = 1.0
+    activation: str = "elu"
     # Reproduction choices, with evidence/rationale in PIE_NETWORK.md.
     proprio_hidden_dims: Tuple[int, ...] = (512, 256)
     cnn_hidden_channels: Tuple[int, int] = (32, 64)
@@ -91,18 +92,60 @@ def mlp(input_dim, widths, output_dim):
         input_dim = width
     return nn.Sequential(*layers, nn.Linear(input_dim, output_dim))
 
+class PIEDepthFeatureCache:
+    """Reuse deterministic CNN outputs while retaining every use's gradient.
+
+    A training cache belongs to one logical optimizer update only. Updating
+    rows is out-of-place: prior recurrent steps keep their original features,
+    and repeated uses share the CNN graph rather than detached rollout latents.
+    Observations without image IDs are encoded directly.
+    """
+    def __init__(self):
+        self.frame_ids = None
+        self.features = None
+        self.encoded_stacks = 0
+
+    def get(self, model, obs, depth_frames=None):
+        frame_ids = obs.get("depth_indices", obs.get("depth_frame_ids"))
+        if frame_ids is None:
+            self.encoded_stacks += obs["depth"].shape[0]
+            return model.encode_depth(obs["depth"])
+        if self.frame_ids is None:
+            changed = torch.arange(frame_ids.shape[0], device=frame_ids.device)
+        else:
+            if frame_ids.shape != self.frame_ids.shape:
+                raise ValueError("A depth cache cannot change its environment/history axes")
+            changed = torch.nonzero((frame_ids != self.frame_ids).any(-1)).flatten()
+        if changed.numel():
+            if "depth_indices" in obs:
+                if depth_frames is None:
+                    raise ValueError("Indexed images require a depth frame pool")
+                depth = depth_frames[frame_ids[changed]]
+            else:
+                depth = obs["depth"][changed]
+            encoded = model.encode_depth(depth)
+            if self.features is None:
+                self.features = encoded
+            else:
+                self.features = self.features.index_copy(0, changed, encoded)
+            self.frame_ids = frame_ids.detach().clone()
+            self.encoded_stacks += changed.numel()
+        return self.features
+
+
 class PIEActorCritic(ActorCritic):
     """The actor uses estimates, never privileged targets.
-    
+
     PPO uses posterior means for repeatable action probabilities. Only the
     successor decoder samples the VAE. This is an explicit reproduction choice,
     because the paper does not specify how latent samples are replayed in PPO.
-    Transformer dropout is zero for the same reason. GRU state is passed in and
-    out, so it cannot leak between environments or survive episode boundaries.
+    Transformer dropout is zero for the same reason. The native recurrent API
+    owns rollout state; explicit states are used only for minibatch replay.
     """
     is_recurrent = True
     def __init__(self, num_actor_obs=None, num_critic_obs=None, num_actions=None,
-                 model_config=None):
+                 model_config=None, init_noise_std=None, actor_hidden_dims=None,
+                 critic_hidden_dims=None, activation=None):
         # Accept the native v1.0.2 runner signature and the configuration helper.
         if isinstance(num_actor_obs, ModelConfig):
             cfg = num_actor_obs
@@ -112,13 +155,18 @@ class PIEActorCritic(ActorCritic):
                                  ("critic_dim", num_critic_obs), ("action_dim", num_actions)):
                 if actual is not None and getattr(cfg, name) != actual:
                     raise ValueError("PIE model/environment mismatch for " + name)
-        if cfg.initial_std <= 0:
-            raise ValueError("initial_std must be positive")
+        # Native policy fields are authoritative for actor/critic/exploration.
+        resolved = asdict(cfg)
+        for name, value in (("initial_std", init_noise_std), ("actor_hidden_dims", actor_hidden_dims),
+                            ("critic_hidden_dims", critic_hidden_dims), ("activation", activation)):
+            if value is not None:
+                resolved[name] = value
+        cfg = ModelConfig(**resolved)
         estimate_dim = 3 + 4 + cfg.map_latent_dim + cfg.latent_dim
         super().__init__(
             cfg.proprio_dim + estimate_dim, cfg.critic_dim, cfg.action_dim,
             actor_hidden_dims=list(cfg.actor_hidden_dims), critic_hidden_dims=list(cfg.critic_hidden_dims),
-            activation="elu", init_noise_std=cfg.initial_std)
+            activation=cfg.activation, init_noise_std=cfg.initial_std)
         self.cfg = cfg
         self.proprio_encoder = mlp(cfg.proprio_dim * cfg.proprio_history,
                                   cfg.proprio_hidden_dims, cfg.token_dim)
@@ -159,39 +207,28 @@ class PIEActorCritic(ActorCritic):
         ):
             print("{}: {}".format(label, module))
         print("Positional Embedding: {}".format(tuple(self.position.shape)))
-
-    @property
-    def log_std(self):
-        """Compatibility view; the learnable parameter is v1.0.2's native std."""
-        return self.std.clamp_min(torch.finfo(self.std.dtype).eps).log()
-
-    def load_state_dict(self, state_dict, strict=True):
-        # Previous minimal checkpoints wrapped the 2.2.4 ActorCritic in policy.
-        # Only weights are migrated; old optimizer moments cannot be reused.
-        state_dict = dict(state_dict)
-        for key in list(state_dict):
-            if key.startswith(("policy.actor.", "policy.critic.")):
-                state_dict[key[len("policy."):]] = state_dict.pop(key)
-        if "policy.log_std" in state_dict:
-            state_dict["std"] = state_dict.pop("policy.log_std").exp()
-        return super().load_state_dict(state_dict, strict=strict)
+        self._hidden = None
+        self._visual_cache = PIEDepthFeatureCache()
 
     def initial_state(self, batch_size, device=None):
         return torch.zeros(batch_size, self.cfg.gru_dim,
-                           device=device or self.std.device)
+                           device=device or self.std.device, dtype=self.std.dtype)
 
-    def encode(self, obs, hidden, reset_mask=None):
+    def encode_depth(self, depth):
+        # A trajectory minibatch retains the complete recurrent graph. Recompute
+        # newly encoded image stacks during backward; unchanged stacks are
+        # reused by PIEDepthFeatureCache without another CNN call. Non-reentrant
+        # checkpointing trains CNN weights even when camera inputs have no grad.
+        if self.training and torch.is_grad_enabled():
+            return checkpoint(self.depth_encoder, depth, use_reentrant=False)
+        else:
+            return self.depth_encoder(depth)
+
+    def encode(self, obs, hidden, reset_mask=None, visual_features=None):
         if reset_mask is not None:
             hidden = hidden * (~reset_mask.bool()).unsqueeze(-1)
         prop = self.proprio_encoder(obs["proprio_history"].flatten(1)).unsqueeze(1)
-        # A trajectory minibatch keeps 24 steps' recurrent graphs alive. Retaining
-        # every CNN activation at every step exceeds 24 GiB at 4096 environments.
-        # Recompute this pure encoder during backward, preserving full GRU BPTT.
-        # Non-reentrant checkpointing also trains the CNN when depth has no grad.
-        if self.training and torch.is_grad_enabled():
-            visual = checkpoint(self.depth_encoder, obs["depth"], use_reentrant=False)
-        else:
-            visual = self.depth_encoder(obs["depth"])
+        visual = self.encode_depth(obs["depth"]) if visual_features is None else visual_features
         depth = visual.flatten(2).transpose(1, 2)
         tokens = self.transformer(torch.cat((prop, depth), dim=1) + self.position)
         hidden = self.gru(tokens.flatten(1), hidden)
@@ -208,26 +245,58 @@ class PIEActorCritic(ActorCritic):
         return torch.cat((estimates["velocity"], estimates["foot_clearance"],
                           estimates["map_latent"], estimates["mu"] if z is None else z), dim=-1)
 
-    def policy_distribution(self, obs, hidden, reset_mask=None):
-        estimates, hidden = self.encode(obs, hidden, reset_mask)
+    def policy_distribution(self, obs, hidden, reset_mask=None, visual_features=None):
+        estimates, hidden = self.encode(obs, hidden, reset_mask, visual_features)
         mean = self.actor(torch.cat((obs["proprio"], self.features(estimates)), dim=-1))
         # distribution is an attribute in v1.0.2; keep its probability API.
         scale = self.std.clamp_min(torch.finfo(self.std.dtype).eps)
         self.distribution = Normal(mean, scale, validate_args=False)
         return self.distribution, hidden, estimates
 
+    def evaluate(self, critic_observations, **kwargs):
+        """Native RSL value interface; the critic has no recurrent memory."""
+        if isinstance(critic_observations, dict):
+            critic_observations = critic_observations["critic"]
+        return self.critic(critic_observations)
+
     def value(self, obs):
-        return self.critic(obs["critic"]).squeeze(-1)
+        return self.evaluate(obs).squeeze(-1)
 
-    def act(self, obs, hidden, reset_mask=None, deterministic=False):
-        dist, hidden, estimates = self.policy_distribution(obs, hidden, reset_mask)
-        actions = dist.mean if deterministic else dist.sample()
-        return actions, self.get_actions_log_prob(actions), self.value(obs), hidden
+    def _rollout_distribution(self, observations, masks=None, hidden_states=None):
+        if hidden_states is None:
+            if self._hidden is None or self._hidden.shape[0] != observations["proprio"].shape[0]:
+                self._hidden = self.initial_state(observations["proprio"].shape[0])
+                self._visual_cache = PIEDepthFeatureCache()
+            hidden = self._hidden
+        else:
+            hidden = hidden_states.squeeze(0) if hidden_states.ndim == 3 else hidden_states
+        reset_mask = None if masks is None else ~masks.bool().flatten()
+        visual = self._visual_cache.get(self, observations)
+        distribution, next_hidden, _ = self.policy_distribution(
+            observations, hidden, reset_mask, visual_features=visual)
+        if hidden_states is None:
+            self._hidden = next_hidden
+        return distribution
 
-    def evaluate(self, obs, hidden, actions, reset_mask=None):
-        dist, hidden, estimates = self.policy_distribution(obs, hidden, reset_mask)
+    def act(self, observations, masks=None, hidden_states=None):
+        """Sample actions through the original ActorCritic interface."""
+        return self._rollout_distribution(observations, masks, hidden_states).sample()
+
+    def evaluate_actions(self, obs, hidden, actions, reset_mask=None, visual_features=None):
+        """Explicit recurrent replay without replacing the live rollout state."""
+        _, hidden, estimates = self.policy_distribution(obs, hidden, reset_mask, visual_features)
         return (self.get_actions_log_prob(actions), self.entropy,
                 self.value(obs), hidden, estimates)
+
+    def get_hidden_states(self):
+        return self._hidden, None
+
+    def reset(self, dones=None):
+        if dones is None:
+            self._hidden = None
+            self._visual_cache = PIEDepthFeatureCache()
+        elif self._hidden is not None:
+            self._hidden = self._hidden * (~dones.bool().flatten()).unsqueeze(-1)
 
     def auxiliary_losses(self, estimates, targets, successor, valid=None,
                          successor_valid=None):
@@ -259,8 +328,7 @@ class PIEActorCritic(ActorCritic):
             "kl": masked_mean(kl, valid)}
 
     def update_distribution(self, observations):
-        raise RuntimeError("PIE requires policy_distribution(obs_dict, hidden, reset_mask)")
+        self._rollout_distribution(observations)
 
-    def act_inference(self, observations, hidden, reset_mask=None):
-        distribution, hidden, _ = self.policy_distribution(observations, hidden, reset_mask)
-        return distribution.mean, hidden
+    def act_inference(self, observations):
+        return self._rollout_distribution(observations).mean

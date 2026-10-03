@@ -83,38 +83,68 @@ class OnPolicyRunner:
     def _reset_env(self):
         _, _ = self.env.reset()
     
+    def _actor_observations(self, observations):
+        return observations
+
+    def _rollout_context(self):
+        return torch.inference_mode()
+
+    def _begin_rollout(self):
+        pass
+
+    def _on_env_step(self, rewards, dones, infos):
+        pass
+
+    def _iteration_metrics(self, locs):
+        return dict(self.alg.metrics)
+
+    def _extra_log_string(self, metrics):
+        return ''
+
+    def _after_iteration(self, locs, metrics):
+        pass
+
+    def _save_final(self):
+        self.save(os.path.join(self.log_dir, 'model_{}.pt'.format(self.current_learning_iteration)))
+
     def learn(self, num_learning_iterations, init_at_random_ep_len=False):
-        # initialize writer
+        if num_learning_iterations < 1:
+            raise ValueError("num_learning_iterations must be positive")
         if self.log_dir is not None and self.writer is None:
             self.writer = SummaryWriter(log_dir=self.log_dir, flush_secs=10)
         if init_at_random_ep_len:
-            self.env.episode_length_buf = torch.randint_like(self.env.episode_length_buf, high=int(self.env.max_episode_length))
+            self.env.episode_length_buf = torch.randint_like(
+                self.env.episode_length_buf, high=int(self.env.max_episode_length))
         obs = self.env.get_observations()
         privileged_obs = self.env.get_privileged_observations()
         critic_obs = privileged_obs if privileged_obs is not None else obs
         obs, critic_obs = obs.to(self.device), critic_obs.to(self.device)
-        self.alg.actor_critic.train() # switch to train mode (for dropout for example)
+        self.alg.actor_critic.train()
 
         ep_infos = []
         rewbuffer = deque(maxlen=100)
         lenbuffer = deque(maxlen=100)
         cur_reward_sum = torch.zeros(self.env.num_envs, dtype=torch.float, device=self.device)
         cur_episode_length = torch.zeros(self.env.num_envs, dtype=torch.float, device=self.device)
-
-        tot_iter = self.current_learning_iteration + num_learning_iterations
-        for it in range(self.current_learning_iteration, tot_iter):
+        start_iteration = self.current_learning_iteration
+        tot_iter = start_iteration + num_learning_iterations
+        completed_numbering = self.cfg.get("completed_iteration_numbering", False)
+        self.last_metrics = {}
+        for it in range(start_iteration, tot_iter):
             start = time.time()
-            # Rollout
-            with torch.inference_mode():
+            self._begin_rollout()
+            # The original native collection loop and env return contract.
+            with self._rollout_context():
                 for i in range(self.num_steps_per_env):
-                    actions = self.alg.act(obs, critic_obs)
+                    actions = self.alg.act(self._actor_observations(obs), critic_obs)
                     obs, privileged_obs, rewards, dones, infos = self.env.step(actions)
                     critic_obs = privileged_obs if privileged_obs is not None else obs
-                    obs, critic_obs, rewards, dones = obs.to(self.device), critic_obs.to(self.device), rewards.to(self.device), dones.to(self.device)
+                    obs, critic_obs, rewards, dones = (
+                        obs.to(self.device), critic_obs.to(self.device),
+                        rewards.to(self.device), dones.to(self.device))
                     self.alg.process_env_step(rewards, dones, infos)
-                    
+                    self._on_env_step(rewards, dones, infos)
                     if self.log_dir is not None:
-                        # Book keeping
                         if 'episode' in infos:
                             ep_infos.append(infos['episode'])
                         cur_reward_sum += rewards
@@ -124,25 +154,48 @@ class OnPolicyRunner:
                         lenbuffer.extend(cur_episode_length[new_ids][:, 0].cpu().numpy().tolist())
                         cur_reward_sum[new_ids] = 0
                         cur_episode_length[new_ids] = 0
-
                 stop = time.time()
                 collection_time = stop - start
-
-                # Learning step
                 start = stop
                 self.alg.compute_returns(critic_obs)
-            
+
             mean_value_loss, mean_surrogate_loss = self.alg.update()
             stop = time.time()
             learn_time = stop - start
+            iteration_number = it + 1 if completed_numbering else it
+            # Use an explicit logging view. Copying locals() here would include
+            # the preceding iteration's locs dictionary and retain every rollout.
+            locs = {"it": it, "iteration_number": iteration_number, "tot_iter": tot_iter,
+                    "num_learning_iterations": num_learning_iterations,
+                    "collection_time": collection_time, "learn_time": learn_time,
+                    "mean_value_loss": mean_value_loss, "mean_surrogate_loss": mean_surrogate_loss,
+                    "ep_infos": ep_infos, "rewbuffer": rewbuffer, "lenbuffer": lenbuffer}
+            metrics = self._iteration_metrics(locs)
+            locs['extra_log_string'] = self._extra_log_string(metrics)
             if self.log_dir is not None:
-                self.log(locals())
-            if it % self.save_interval == 0:
-                self.save(os.path.join(self.log_dir, 'model_{}.pt'.format(it)))
+                self.log(locs)
+            else:
+                self.tot_timesteps += self.num_steps_per_env * self.env.num_envs
+                self.tot_time += collection_time + learn_time
+            if completed_numbering:
+                self.current_learning_iteration = it + 1
+            metrics.update(
+                iteration=it + 1, transitions=self.num_steps_per_env * self.env.num_envs,
+                collection_time=collection_time, learning_time=learn_time,
+                iteration_time=collection_time + learn_time, total_time=self.tot_time,
+                total_timesteps=self.tot_timesteps,
+                fps=self.num_steps_per_env * self.env.num_envs / max(collection_time + learn_time, 1e-9))
+            self.last_metrics = metrics
+            self._after_iteration(locs, metrics)
+            if self.log_dir is not None and iteration_number % self.save_interval == 0:
+                self.save(os.path.join(self.log_dir, 'model_{}.pt'.format(iteration_number)))
             ep_infos.clear()
-        
-        self.current_learning_iteration += num_learning_iterations
-        self.save(os.path.join(self.log_dir, 'model_{}.pt'.format(self.current_learning_iteration)))
+
+        self.current_learning_iteration = tot_iter
+        if self.log_dir is not None:
+            self._save_final()
+            self.writer.flush()
+        return self.last_metrics
 
     def log(self, locs, width=80, pad=35):
         self.tot_timesteps += self.num_steps_per_env * self.env.num_envs
@@ -179,7 +232,9 @@ class OnPolicyRunner:
             self.writer.add_scalar('Train/mean_reward/time', statistics.mean(locs['rewbuffer']), self.tot_time)
             self.writer.add_scalar('Train/mean_episode_length/time', statistics.mean(locs['lenbuffer']), self.tot_time)
 
-        str = f" \033[1m Learning iteration {locs['it']}/{self.current_learning_iteration + locs['num_learning_iterations']} \033[0m "
+        displayed_iteration = locs.get('iteration_number', locs['it'])
+        target_iteration = locs.get('tot_iter', self.current_learning_iteration + locs['num_learning_iterations'])
+        str = f" \033[1m Learning iteration {displayed_iteration}/{target_iteration} \033[0m "
 
         if len(locs['rewbuffer']) > 0:
             log_string = (f"""{'#' * width}\n"""
@@ -211,7 +266,7 @@ class OnPolicyRunner:
                        f"""{'Iteration time:':>{pad}} {iteration_time:.2f}s\n"""
                        f"""{'Total time:':>{pad}} {self.tot_time:.2f}s\n"""
                        f"""{'ETA:':>{pad}} {self.tot_time / (locs['it'] + 1) * (
-                               locs['num_learning_iterations'] - locs['it']):.1f}s\n""")
+                               locs.get('tot_iter', locs['num_learning_iterations']) - locs['it'] - 1):.1f}s\n""")
         print(log_string)
 
     def save(self, path, infos=None):

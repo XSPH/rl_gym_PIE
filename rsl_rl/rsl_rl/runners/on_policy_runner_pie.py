@@ -1,27 +1,38 @@
-"""PIE runner built on the v1.0.2 OnPolicyRunner construction contract."""
+"""PIE hooks on the original RSL-RL v1.0.2 runner; no second learn loop."""
 from dataclasses import asdict, dataclass, field, is_dataclass
 from pathlib import Path
-from collections import deque
-from copy import copy
+from copy import deepcopy
 import json
 import random
-import time
+import numpy as np
 import torch
-from torch.utils.tensorboard import SummaryWriter
 from .on_policy_runner import OnPolicyRunner
-from rsl_rl.modules.actor_critic_pie import ModelConfig, PIEActorCritic
+from rsl_rl.modules.actor_critic_pie import ModelConfig, PIEActorCritic, PIEDepthFeatureCache
 from rsl_rl.algorithms.ppo_pie import PPOConfig
+
 
 @dataclass
 class PIERunnerCfg:
-    """Task-level network, joint PPO settings and checkpoint schedule."""
+    """Convenience conversion only; registered tasks use native train_cfg."""
     seed: int = 1
     num_steps_per_env: int = 24
     max_iterations: int = 15000
     save_interval: int = 500
-    experiment_name: str = "lite3_pie"
+    experiment_name: str = "lite3_pie_native"
     model: ModelConfig = field(default_factory=ModelConfig)
     ppo: PPOConfig = field(default_factory=PPOConfig)
+
+    def to_native_dict(self):
+        return {
+            "seed": self.seed,
+            "runner": {"policy_class_name": "PIEActorCritic", "algorithm_class_name": "PIEPPO",
+                       "runner_class_name": "PIEOnPolicyRunner", "num_steps_per_env": self.num_steps_per_env,
+                       "save_interval": self.save_interval, "max_iterations": self.max_iterations,
+                       "experiment_name": self.experiment_name, "completed_iteration_numbering": True},
+            "policy": {"model_config": asdict(self.model)},
+            "algorithm": self.ppo.as_native_kwargs(),
+        }
+
 
 def seed_everything(seed):
     random.seed(seed)
@@ -29,241 +40,178 @@ def seed_everything(seed):
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
 
+
+def plain_config(value):
+    """Serialize configuration fields, including nested BaseConfig classes."""
+    if is_dataclass(value) and not isinstance(value, type):
+        return plain_config(asdict(value))
+    if isinstance(value, dict):
+        return {key: plain_config(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [plain_config(item) for item in value]
+    # NumPy scalar subclasses (notably np.float64) can pass isinstance(float)
+    # but their pickles require unsafe globals under torch weights_only loading.
+    if isinstance(value, np.generic):
+        return plain_config(value.item())
+    if isinstance(value, np.ndarray):
+        return plain_config(value.tolist())
+    if value is None or isinstance(value, (str, bool, int, float)):
+        return value
+    if isinstance(value, torch.Tensor):
+        return value.detach().cpu().tolist()
+    if isinstance(value, type) or hasattr(value, "__dict__"):
+        result = {}
+        for name in dir(value):
+            if name.startswith('_'):
+                continue
+            item = getattr(value, name)
+            if callable(item) and not isinstance(item, type):
+                continue
+            result[name] = plain_config(item)
+        return result
+    raise TypeError("Unsupported configuration value: {}".format(type(value).__name__))
+
+
 class PIEOnPolicyRunner(OnPolicyRunner):
-    """Native RSL factories/storage/optimizer with PIE dict observations and labels."""
-    def __init__(self, env, train_cfg, log_dir="runs/lite3_pie", device=None):
+    """Sensor preparation, metrics, and checkpoint hooks; learn() is inherited."""
+    def __init__(self, env, train_cfg, log_dir=None, device=None):
+        if not isinstance(train_cfg, dict) or not {"runner", "policy", "algorithm"}.issubset(train_cfg):
+            raise TypeError("PIE runner requires the native runner/policy/algorithm train_cfg dictionary")
         device = torch.device(device or env.device)
+        sim_device = torch.device(env.device)
         if device.type == "cuda" and device.index is None:
             device = torch.device("cuda", torch.cuda.current_device())
-        if device != torch.device(env.device):
-            raise ValueError("PIE requires the RL device to match the simulation device.")
-        if isinstance(train_cfg, dict):
-            data = dict(train_cfg)
-            if isinstance(data.get("model"), dict):
-                data["model"] = ModelConfig(**data["model"])
-            if isinstance(data.get("ppo"), dict):
-                data["ppo"] = PPOConfig(**data["ppo"])
-            train_cfg = PIERunnerCfg(**data)
-        self.pie_cfg = train_cfg
-        if train_cfg.num_steps_per_env < 1:
-            raise ValueError("num_steps_per_env must be positive")
-        if not isinstance(train_cfg.save_interval, int) or train_cfg.save_interval < 1:
-            raise ValueError("save_interval must be a positive integer")
-        seed_everything(train_cfg.seed)
-        native_cfg = {
-            "runner": {"policy_class_name": "PIEActorCritic",
-                       "algorithm_class_name": "PIEPPO",
-                       "num_steps_per_env": train_cfg.num_steps_per_env,
-                       "save_interval": train_cfg.save_interval},
-            "policy": {"model_config": asdict(train_cfg.model)},
-            "algorithm": {"pie_config": asdict(train_cfg.ppo)},
-        }
-        super().__init__(env, native_cfg, log_dir, device=device or env.device)
-        train_cfg.model.validate_observation(self._observation, env.num_actions)
-        self._hidden = self.alg.actor_critic.initial_state(env.num_envs)
-        self._reset_mask = torch.ones(env.num_envs, dtype=torch.bool, device=self.device)
+        if sim_device.type == "cuda" and sim_device.index is None:
+            sim_device = torch.device("cuda", torch.cuda.current_device())
+        if device != sim_device:
+            raise ValueError("PIE requires matching simulation and RL devices")
+        self.train_cfg = deepcopy(train_cfg)
+        self.train_cfg["runner"]["completed_iteration_numbering"] = True
+        runner = self.train_cfg["runner"]
+        if runner["num_steps_per_env"] < 1 or runner["save_interval"] < 1:
+            raise ValueError("PIE rollout length and save interval must be positive")
+        self._rollout_reward_sum = None
+        self._reset_counts = {}
+        super().__init__(env, self.train_cfg, log_dir, device)
+        self.model_cfg = self.alg.actor_critic.cfg
+        self.model_cfg.validate_observation(env.get_pie_observations(), env.num_actions)
         print("PIE training: envs={}, rollout={}, epochs={}, minibatches={}, lr={}, "
               "schedule={}, desired_kl={}, initial_std={}, target_iterations={}, save_interval={}".format(
-                  env.num_envs, train_cfg.num_steps_per_env, train_cfg.ppo.epochs,
-                  train_cfg.ppo.minibatches, train_cfg.ppo.learning_rate,
-                  train_cfg.ppo.schedule, train_cfg.ppo.desired_kl,
-                  train_cfg.model.initial_std, train_cfg.max_iterations, train_cfg.save_interval))
+                  env.num_envs, self.num_steps_per_env, self.alg.num_learning_epochs,
+                  self.alg.num_mini_batches, self.alg.learning_rate, self.alg.schedule,
+                  self.alg.desired_kl, self.model_cfg.initial_std,
+                  runner.get("max_iterations", 15000), self.save_interval))
 
-    def _reset_env(self):
-        # Stock VecEnv.reset returns a pair; PIE retains sensor history and labels.
-        self._observation = self.env.reset()
+    def _actor_observations(self, observations):
+        return self.env.get_pie_observations()
 
-    def learn(self, num_learning_iterations=None, init_at_random_ep_len=False):
-        iterations = (self.pie_cfg.max_iterations if num_learning_iterations is None
-                      else num_learning_iterations)
-        if iterations < 1:
-            raise ValueError("iterations must be positive")
-        if init_at_random_ep_len:
-            counter = self.env.episode_steps
-            limit = round(self.env.config.episode_seconds / self.env.config.policy_dt)
-            counter.copy_(torch.randint(max(1, limit), counter.shape, device=counter.device))
-        obs, hidden, reset_mask = self._observation, self._hidden, self._reset_mask
-        output = Path(self.log_dir) if self.log_dir is not None else None
-        if output is not None:
-            output.mkdir(parents=True, exist_ok=True)
-            if self.writer is None:
-                self.writer = SummaryWriter(log_dir=str(output), flush_secs=10)
-        last = {}
-        target_iteration = self.current_learning_iteration + iterations
-        for _ in range(iterations):
-            start = time.perf_counter()
-            batch, obs, hidden, reset_mask = self.alg.collect(
-                self.env, obs, hidden, reset_mask, self.num_steps_per_env)
-            collected = time.perf_counter()
-            last = self.alg.update(batch)
-            hidden, reset_mask = self.alg.refresh_hidden(batch)
-            self._observation, self._hidden, self._reset_mask = obs, hidden, reset_mask
-            self.current_learning_iteration += 1
-            transitions = len(batch["frames"]) * hidden.shape[0]
-            ep_infos = self._update_episode_statistics(batch["frames"])
-            last.update(iteration=self.current_learning_iteration,
-                        mean_reward=float(torch.stack([f["rewards"] for f in batch["frames"]]).mean()),
-                        transitions=transitions)
-            last.update(learning_rate=self.alg.optimizer.param_groups[0]["lr"],
-                        mean_action_noise_std=float(self.alg.actor_critic.std.detach().mean()))
-            levels = getattr(self.env, "levels", None)
-            if levels is not None:
-                # Report the live curriculum state after rollout resets.
-                last.update(terrain_level=float(levels.float().mean()),
-                            terrain_level_min=int(levels.min()),
-                            terrain_level_max=int(levels.max()))
-            stop = time.perf_counter()
-            iteration_time = stop - start
-            last.update(collection_time=collected-start, learning_time=stop-collected,
-                        iteration_time=iteration_time, total_time=self.tot_time+iteration_time,
-                        total_timesteps=self.tot_timesteps+transitions, fps=transitions/max(iteration_time, 1e-9))
-            if self._reward_buffer:
-                last.update(mean_episode_reward=sum(self._reward_buffer)/len(self._reward_buffer),
-                            mean_episode_length=sum(self._length_buffer)/len(self._length_buffer))
-            if ep_infos:
-                last["episode_rewards"] = {
-                    name: float(torch.stack([info[name] for info in ep_infos]).mean())
-                    for name in ep_infos[0]}
-            if output is not None:
-                with (output / "metrics.jsonl").open("a", encoding="utf-8") as stream:
-                    stream.write(json.dumps(last, allow_nan=False) + "\n")
-            self._log_pie_iteration(last, target_iteration, ep_infos)
-            if output is not None and self.current_learning_iteration % self.save_interval == 0:
-                self.save(output / "model_{}.pt".format(self.current_learning_iteration))
-            # Drop the caller's camera-trajectory reference before the next
-            # collect() clears storage. Otherwise two full image rollouts coexist.
-            del batch
-        if output is not None:
-            checkpoint = output / "checkpoint.pt"
-            self.save(checkpoint)
-            last = {"checkpoint": str(checkpoint), **last}
-            self.writer.flush()
-        return last
+    def _rollout_context(self):
+        # Camera tensors allocated during collection must remain usable by
+        # autograd; inference-mode tensors cannot be saved for CNN backward.
+        return torch.no_grad()
 
-    def _update_episode_statistics(self, frames):
-        # Like the native RSL runner, count only steps actually collected;
-        # randomized timeout counters do not inflate logged episode lengths.
-        if not hasattr(self, "_episode_reward_sum"):
-            self._episode_reward_sum = torch.zeros_like(frames[0]["rewards"])
-            self._episode_step_count = torch.zeros_like(frames[0]["rewards"], dtype=torch.long)
-            self._reward_buffer, self._length_buffer = deque(maxlen=100), deque(maxlen=100)
-            self._reward_term_sums = {}
-        returns, lengths, ep_infos = [], [], []
-        config = getattr(self.env, "config", None)
-        scale = config.policy_dt if config is not None and config.reward_scale_dt else 1.0
-        horizon = config.episode_seconds if config is not None else 1.0
-        # Use familiar LeggedRobot names for equivalent PIE reward terms.
-        names = {"tracking_linear": "tracking_lin_vel", "tracking_yaw": "tracking_ang_vel",
-                 "vertical_velocity": "lin_vel_z", "angular_velocity": "ang_vel_xy",
-                 "joint_acceleration": "dof_acc"}
-        for frame in frames:
-            self._episode_reward_sum += frame["rewards"]
-            self._episode_step_count += 1
-            for name, value in frame.get("reward_terms", {}).items():
-                if name not in self._reward_term_sums:
-                    self._reward_term_sums[name] = torch.zeros_like(frame["rewards"])
-                self._reward_term_sums[name] += torch.nan_to_num(value, nan=0.0, posinf=0.0, neginf=0.0)*scale
-            done = frame["terminated"] | frame["truncated"]
-            if done.any():
-                returns.append(self._episode_reward_sum[done].clone())
-                lengths.append(self._episode_step_count[done].clone())
-                # Match LeggedRobot.reset_idx: mean of completed episode sums
-                # divided by the configured episode horizon in seconds.
-                episode = {}
-                for name, total in self._reward_term_sums.items():
-                    episode["rew_" + names.get(name, name)] = total[done].mean()/horizon
-                    total[done] = 0
-                if episode:
-                    ep_infos.append(episode)
-                self._episode_reward_sum[done] = 0
-                self._episode_step_count[done] = 0
-        if returns:
-            self._reward_buffer.extend(torch.cat(returns).cpu().tolist())
-            self._length_buffer.extend(torch.cat(lengths).cpu().tolist())
-        return ep_infos
+    def _begin_rollout(self):
+        self.alg.begin_rollout()
+        self._rollout_reward_sum = torch.zeros((), device=self.device)
+        self._reset_counts = {}
 
-    def _log_pie_iteration(self, metrics, target_iteration, ep_infos):
-        """Keep original rewards/statistics and append PIE details in one table."""
-        if self.writer is None:
-            self.tot_timesteps = metrics["total_timesteps"]
-            self.tot_time = metrics["total_time"]
-            return
-        # The native logger expects a fixed start offset while learn() runs.
-        # An isolated, shallow logging view keeps PIE's completed-iteration
-        # checkpoint counter intact and avoids counting time/steps twice.
-        logger = copy(self)
-        logger.current_learning_iteration = 0
-        extra_fields = [
-            ("Total loss:", "loss"),
-            ("Velocity estimation loss:", "velocity"),
-            ("Foot clearance loss:", "foot_clearance"),
-            ("Height map reconstruction loss:", "heightmap"),
-            ("Successor reconstruction loss:", "successor"),
-            ("VAE KL loss:", "kl"),
-            ("Policy KL divergence:", "policy_kl"),
-            ("Gradient norm before clipping:", "grad_norm"),
-            ("Learning rate:", "learning_rate"),
-            ("Mean step reward:", "mean_reward"),
-            ("Mean terrain level:", "terrain_level"),
+    def _on_env_step(self, rewards, dones, infos):
+        self._rollout_reward_sum += rewards.sum()
+        side = infos.get("pie", {})
+        timeout = infos.get("time_outs", torch.zeros_like(dones)).bool()
+        counts = {"timeouts": timeout.sum(), "failures": (dones.bool() & ~timeout).sum()}
+        for name, flags in side.get("termination_reasons", {}).items():
+            counts[name] = flags.bool().sum()
+        for name, count in counts.items():
+            if name not in self._reset_counts:
+                self._reset_counts[name] = count.detach().clone()
+            else:
+                self._reset_counts[name] += count
+
+    def _iteration_metrics(self, locs):
+        metrics = super()._iteration_metrics(locs)
+        metrics.update(learning_rate=self.alg.learning_rate,
+                       mean_action_noise_std=float(self.alg.actor_critic.std.detach().mean()),
+                       mean_reward=float(self._rollout_reward_sum) / (self.num_steps_per_env * self.env.num_envs))
+        levels = getattr(self.env, "terrain_levels", None)
+        if levels is not None:
+            metrics.update(terrain_level=float(levels.float().mean()),
+                           terrain_level_min=int(levels.min()), terrain_level_max=int(levels.max()))
+        metrics["reset_counts"] = {name: int(value) for name, value in self._reset_counts.items()}
+        if locs["rewbuffer"]:
+            metrics["mean_episode_reward"] = sum(locs["rewbuffer"]) / len(locs["rewbuffer"])
+            metrics["mean_episode_length"] = sum(locs["lenbuffer"]) / len(locs["lenbuffer"])
+        ep_infos = locs["ep_infos"]
+        if ep_infos:
+            metrics["episode_rewards"] = {
+                name: float(torch.cat([torch.as_tensor(info[name], device=self.device).flatten()
+                                      for info in ep_infos if name in info]).float().mean())
+                for name in ep_infos[0]}
+        return metrics
+
+    def _extra_log_string(self, metrics):
+        fields = [
+            ("Total loss:", "loss"), ("Velocity estimation loss:", "velocity"),
+            ("Foot clearance loss:", "foot_clearance"), ("Height map reconstruction loss:", "heightmap"),
+            ("Successor reconstruction loss:", "successor"), ("VAE KL loss:", "kl"),
+            ("Policy KL divergence:", "policy_kl"), ("Gradient norm before clipping:", "grad_norm"),
+            ("Learning rate:", "learning_rate"), ("Mean step reward:", "mean_reward"),
+            ("Mean terrain level:", "terrain_level"), ("Depth frame pool (MiB):", "depth_pool_mib"),
+            ("Equivalent dense depth (MiB):", "depth_dense_mib"), ("CNN feature reuse fraction:", "cnn_reuse_fraction"),
         ]
-        extra_log_string = "".join(
-            "{:>35} {:.6f}\n".format(label, metrics[key])
-            for label, key in extra_fields if key in metrics)
-        for label, key in (("Min terrain level:", "terrain_level_min"),
-                           ("Max terrain level:", "terrain_level_max"),
-                           ("Transitions this iteration:", "transitions")):
+        result = ''.join("{:>35} {:.6f}\n".format(label, metrics[key])
+                         for label, key in fields if key in metrics)
+        for label, key in (("Min terrain level:", "terrain_level_min"), ("Max terrain level:", "terrain_level_max"),
+                           ("Unique depth frames:", "depth_unique_frames"), ("CNN encoded stacks:", "cnn_encoded_stacks"),
+                           ("Equivalent dense CNN stacks:", "cnn_dense_stacks")):
             if key in metrics:
-                extra_log_string += "{:>35} {}\n".format(label, metrics[key])
-        OnPolicyRunner.log(logger, {
-            "it": metrics["iteration"]-1,
-            "num_learning_iterations": target_iteration,
-            "collection_time": metrics["collection_time"],
-            "learn_time": metrics["learning_time"],
-            "mean_value_loss": metrics["value"],
-            "mean_surrogate_loss": metrics["policy"],
-            "ep_infos": ep_infos, "rewbuffer": self._reward_buffer,
-            "lenbuffer": self._length_buffer,
-            "extra_log_string": extra_log_string,
-        })
-        self.tot_timesteps, self.tot_time = logger.tot_timesteps, logger.tot_time
+                result += "{:>35} {}\n".format(label, int(metrics[key]))
+        for name, count in metrics.get("reset_counts", {}).items():
+            result += "{:>35} {}\n".format("Reset {}:".format(name), count)
+        result += "{:>35} {}\n".format("Transitions this iteration:", self.num_steps_per_env * self.env.num_envs)
+        return result
+
+    def _after_iteration(self, locs, metrics):
+        if self.log_dir is None:
+            return
+        output = Path(self.log_dir)
+        output.mkdir(parents=True, exist_ok=True)
+        with (output / "metrics.jsonl").open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps(metrics, allow_nan=False) + "\n")
+        iteration = metrics["iteration"]
         tags = {
-            "Loss/total": "loss", "Train/mean_step_reward": "mean_reward",
-            "PIE/velocity_loss": "velocity", "PIE/foot_clearance_loss": "foot_clearance",
-            "PIE/heightmap_loss": "heightmap", "PIE/successor_loss": "successor",
-            "PIE/vae_kl_loss": "kl", "PIE/gradient_norm_before_clipping": "grad_norm",
-            "PIE/policy_kl": "policy_kl",
-            "Episode/terrain_level": "terrain_level",
-            "Terrain/min_level": "terrain_level_min", "Terrain/max_level": "terrain_level_max",
+            "loss": "Loss/total", "velocity": "PIE/velocity_loss", "foot_clearance": "PIE/foot_clearance_loss",
+            "heightmap": "PIE/heightmap_loss", "successor": "PIE/successor_loss", "kl": "PIE/vae_kl_loss",
+            "policy_kl": "PIE/policy_kl", "grad_norm": "PIE/gradient_norm_before_clipping",
+            "terrain_level": "Episode/terrain_level", "terrain_level_min": "Terrain/min_level",
+            "terrain_level_max": "Terrain/max_level", "mean_reward": "Train/mean_step_reward",
         }
-        for tag, key in tags.items():
-            if key in metrics:
-                self.writer.add_scalar(tag, metrics[key], metrics["iteration"]-1)
+        for name, value in metrics.items():
+            if name.startswith(("depth_", "cnn_")):
+                tags[name] = "PIE/" + name
+        for name, tag in tags.items():
+            if name in metrics:
+                self.writer.add_scalar(tag, metrics[name], iteration)
+        for name, value in metrics["reset_counts"].items():
+            self.writer.add_scalar("Reset/" + name, value, iteration)
+
+    def _save_final(self):
+        self.save(Path(self.log_dir) / "checkpoint.pt")
 
     def save(self, path, infos=None):
-        environment_cfg = getattr(self.env, "config", None)
-        environment_cfg = asdict(environment_cfg) if is_dataclass(environment_cfg) else {}
-        playback_cfg = {}
-        if hasattr(self.env, "commands_scale") and hasattr(self.env, "cfg"):
-            playback_cfg = {
-                "command_scales": self.env.commands_scale.detach().cpu().tolist(),
-                "joint_position_scale": self.env.obs_scales.dof_pos,
-                "clip_observations": self.env.cfg.normalization.clip_observations,
-                "only_positive_rewards": self.env.cfg.rewards.only_positive_rewards,
-            }
-        state, optimizer = self.alg.actor_critic.state_dict(), self.alg.optimizer.state_dict()
-        # Native runner keys plus compatibility keys for existing bounded play.
         checkpoint = {
-            "model_state_dict": state, "optimizer_state_dict": optimizer,
+            "model_state_dict": self.alg.actor_critic.state_dict(),
+            "optimizer_state_dict": self.alg.optimizer.state_dict(),
             "iter": self.current_learning_iteration, "infos": infos,
-            "model": state, "optimizer": optimizer,
-            "model_config": asdict(self.pie_cfg.model), "ppo_config": asdict(self.pie_cfg.ppo),
-            "iterations": self.current_learning_iteration, "seed": self.pie_cfg.seed,
-            "environment_config": environment_cfg, "playback_config": playback_cfg,
-            "torch_rng": torch.get_rng_state(),
+            "model_config": asdict(self.model_cfg), "train_config": plain_config(self.train_cfg),
+            "environment_cfg": plain_config(getattr(self.env, "cfg", {})),
+            "seed": self.train_cfg.get("seed", 1), "torch_rng": torch.get_rng_state(),
+            "cuda_rng": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else [],
             "total_timesteps": self.tot_timesteps, "total_time": self.tot_time,
-            "rsl_rl_base": "v1.0.2", "pie_checkpoint_version": 2,
+            "rsl_rl_base": "v1.0.2", "pie_checkpoint_version": 3,
         }
         path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.with_name(path.name + ".tmp")
         try:
             torch.save(checkpoint, temporary)
@@ -274,52 +222,42 @@ class PIEOnPolicyRunner(OnPolicyRunner):
 
     def load(self, path, load_optimizer=True):
         saved = torch.load(path, map_location=self.device, weights_only=True)
-        stored_config = asdict(ModelConfig(**saved["model_config"]))
-        current_config = asdict(self.pie_cfg.model)
-        # Initial exploration is a fresh-run setting; the learned std is a
-        # checkpoint weight and must survive resuming a previous run.
+        if saved.get("pie_checkpoint_version") != 3 or saved.get("rsl_rl_base") != "v1.0.2":
+            raise ValueError("This branch accepts only native PIE schema-3 checkpoints")
+        stored_config, current_config = asdict(ModelConfig(**saved["model_config"])), asdict(self.model_cfg)
         stored_config.pop("initial_std")
         current_config.pop("initial_std")
         if stored_config != current_config:
             raise ValueError("Checkpoint model configuration does not match this task")
-        if load_optimizer and saved.get("rsl_rl_base") != "v1.0.2":
-            raise ValueError("Optimizer resume requires a v1.0.2 PIE checkpoint; "
-                             "use load_optimizer=False to migrate older weights.")
-        self.alg.actor_critic.load_state_dict(
-            saved["model_state_dict"] if "model_state_dict" in saved else saved["model"])
+        self.alg.actor_critic.load_state_dict(saved["model_state_dict"])
         if load_optimizer:
-            self.alg.optimizer.load_state_dict(
-                saved["optimizer_state_dict"] if "optimizer_state_dict" in saved else saved["optimizer"])
+            self.alg.optimizer.load_state_dict(saved["optimizer_state_dict"])
             self.alg.learning_rate = float(self.alg.optimizer.param_groups[0]["lr"])
-        self.current_learning_iteration = int(saved.get("iter", saved.get("iterations", 0)))
+        self.current_learning_iteration = int(saved["iter"])
         self.tot_timesteps = int(saved.get("total_timesteps", 0))
         self.tot_time = float(saved.get("total_time", 0.0))
-        if "torch_rng" in saved:
-            torch.set_rng_state(saved["torch_rng"].cpu())
-        # Like native RSL-RL resume, restart simulation episodes. Simulator,
-        # camera queues and GRU state are not restored from this checkpoint.
+        torch.set_rng_state(saved["torch_rng"].cpu())
+        if saved.get("cuda_rng") and torch.cuda.is_available():
+            torch.cuda.set_rng_state_all([state.cpu() for state in saved["cuda_rng"]])
+        # Simulator episodes restart, as in native RSL resume.
         self._reset_env()
-        self._hidden = self.alg.actor_critic.initial_state(self.env.num_envs)
-        self._reset_mask.fill_(True)
-        for name in ("_episode_reward_sum", "_episode_step_count", "_reward_buffer",
-                     "_length_buffer", "_reward_term_sums"):
-            if hasattr(self, name):
-                delattr(self, name)
+        self.alg.storage.clear()
+        self.alg.actor_critic.reset()
+        self.alg._reset_mask.fill_(True)
         return saved.get("infos")
 
     def get_inference_policy(self, device=None):
         model = self.alg.actor_critic
+        if device is not None and torch.device(device) != torch.device(self.device):
+            raise ValueError("PIE inference must use the environment device")
         model.eval()
-        if device is not None:
-            model.to(device)
-        hidden = None
+        model.reset()
         @torch.no_grad()
-        def policy(obs, reset_mask=None):
-            nonlocal hidden
-            if hidden is None or hidden.shape[0] != obs["proprio"].shape[0]:
-                hidden = model.initial_state(obs["proprio"].shape[0])
-            actions, hidden = model.act_inference(obs, hidden, reset_mask)
-            return actions
+        def policy(observations, reset_mask=None):
+            if reset_mask is not None:
+                model.reset(reset_mask)
+            obs = observations if isinstance(observations, dict) else self.env.get_pie_observations()
+            return model.act_inference(obs)
         return policy
 
     def add_git_repo_to_log(self, source_file):
@@ -328,70 +266,44 @@ class PIEOnPolicyRunner(OnPolicyRunner):
             return
         output = Path(self.log_dir)
         output.mkdir(parents=True, exist_ok=True)
-        result = subprocess.run(
-            ["git", "-C", str(Path(source_file).resolve().parent), "rev-parse", "HEAD"],
-            capture_output=True, text=True, check=True)
+        result = subprocess.run(["git", "-C", str(Path(source_file).resolve().parent), "rev-parse", "HEAD"],
+                                capture_output=True, text=True, check=True)
         (output / "upstream_commit.txt").write_text(result.stdout)
-        # The published rsl_rl directory is vendored; its nearest Git HEAD is
-        # the PIE repository, so retain the pinned dependency baseline explicitly.
-        (output / "rsl_rl_base_commit.txt").write_text(
-            "2ad79cf0caa85b91721abfe358105f869a784121\n")
+        (output / "rsl_rl_base_commit.txt").write_text("2ad79cf0caa85b91721abfe358105f869a784121\n")
 
 
-def train(env, iterations=15000, rollout_steps=24, output_dir="runs/lite3_pie",
+def train(env, iterations=15000, rollout_steps=24, output_dir="runs/lite3_pie_native",
           seed=1, model_config=None, ppo_config=None, init_at_random_ep_len=True):
-    """Convenience entry with the same formal defaults as the registered task."""
-    cfg = PIERunnerCfg(seed=seed, max_iterations=iterations,
-                       num_steps_per_env=rollout_steps,
-                       model=model_config or ModelConfig(),
-                       ppo=ppo_config or PPOConfig())
-    runner = PIEOnPolicyRunner(env, cfg, output_dir, device=env.device)
+    cfg = PIERunnerCfg(seed=seed, max_iterations=iterations, num_steps_per_env=rollout_steps,
+                       model=model_config or ModelConfig(), ppo=ppo_config or PPOConfig())
+    runner = PIEOnPolicyRunner(env, cfg.to_native_dict(), output_dir, device=env.device)
     return runner.learn(iterations, init_at_random_ep_len)
+
 
 @torch.no_grad()
 def evaluate(env, checkpoint, steps=20):
+    """Bounded schema-3 replay using the native environment interface."""
     if steps < 1:
         raise ValueError("steps must be positive")
-    obs = env.reset()
-    saved = torch.load(checkpoint, map_location=obs["proprio"].device, weights_only=True)
-    cfg = ModelConfig(**saved["model_config"]).validate_observation(obs, env.num_actions)
-    model = PIEActorCritic(cfg).to(obs["proprio"].device)
-    model.load_state_dict(saved["model"]); model.eval()
-    hidden = model.initial_state(obs["proprio"].shape[0])
-    reset_mask = torch.ones(hidden.shape[0], dtype=torch.bool, device=hidden.device)
-    rewards, terminated_count, timeout_count = [], 0, 0
-    reset_reasons, episode_lengths, printed_resets = {}, [], 0
-    for step in range(steps):
-        actions, _, _, hidden = model.act(obs, hidden, reset_mask, deterministic=True)
-        obs, reward, terminated, truncated, info = env.step(actions)
-        rewards.append(float(reward.mean()))
-        terminated_count += int(terminated.sum()); timeout_count += int(truncated.sum())
-        episode = info.get("episode", {})
-        ids = episode.get("indices")
-        if ids is not None and ids.numel():
-            lengths = episode["length"].detach().cpu().tolist()
-            episode_lengths.extend(lengths)
-            reasons = {
-                name: values.detach().cpu().tolist()
-                for name, values in episode.get("termination_reasons", {}).items()
-            }
-            for name, flags in reasons.items():
-                reset_reasons[name] = reset_reasons.get(name, 0) + sum(flags)
-            if printed_resets < 20:
-                positions = episode.get("position")
-                positions = positions.detach().cpu().tolist() if positions is not None else None
-                for index, env_id in enumerate(ids.detach().cpu().tolist()):
-                    if printed_resets >= 20:
-                        break
-                    active = [name for name, flags in reasons.items() if flags[index]]
-                    position = "" if positions is None else " position=({:.2f}, {:.2f}, {:.2f})".format(*positions[index])
-                    print("[PIE reset] step={} env={} episode_steps={} simulated_seconds={:.2f} reasons={}{}".format(
-                        step + 1, env_id, lengths[index], lengths[index] * env.config.policy_dt,
-                        ",".join(active) or "unspecified", position), flush=True)
-                    printed_resets += 1
-        reset_mask = terminated | truncated
-    return {"steps": steps, "mean_reward": sum(rewards)/len(rewards),
-            "terminations": terminated_count, "timeouts": timeout_count,
-            "reset_reasons": reset_reasons,
-            "mean_completed_episode_steps": sum(episode_lengths) / len(episode_lengths) if episode_lengths else None,
+    saved = torch.load(checkpoint, map_location=env.device, weights_only=True)
+    if saved.get("pie_checkpoint_version") != 3:
+        raise ValueError("This branch accepts only native PIE schema-3 checkpoints")
+    runner = PIEOnPolicyRunner(env, saved["train_config"], log_dir=None, device=env.device)
+    runner.load(checkpoint, load_optimizer=False)
+    policy = runner.get_inference_policy()
+    observations = env.get_observations()
+    reward_sum, terminations, timeouts = 0.0, 0, 0
+    reset_reasons = {}
+    for _ in range(steps):
+        actions = policy(observations)
+        observations, _, rewards, dones, infos = env.step(actions)
+        runner.alg.actor_critic.reset(dones)
+        timeout = infos.get("time_outs", torch.zeros_like(dones)).bool()
+        reward_sum += float(rewards.mean())
+        terminations += int((dones.bool() & ~timeout).sum())
+        timeouts += int(timeout.sum())
+        for name, flags in infos.get("pie", {}).get("termination_reasons", {}).items():
+            reset_reasons[name] = reset_reasons.get(name, 0) + int(flags.sum())
+    return {"steps": steps, "mean_reward": reward_sum / steps, "terminations": terminations,
+            "timeouts": timeouts, "reset_reasons": reset_reasons,
             "claim": "bounded checkpoint evaluation; not a paper-performance benchmark"}
