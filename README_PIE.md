@@ -4,6 +4,7 @@
 rsl_rl **v1.0.2** 实现 PIE，从头训练，仅加载本分支的 version-4 模型。
 网络参数来源见 [PIE_NETWORK.md](PIE_NETWORK.md)，改动与验证边界见
 [训练流程记录](docs/native_training_refactor.md)与 [模块收拢记录](docs/pie_module_cleanup.md)。
+GitHub 部署和真实 GPU 短测试见 [4090 验证记录](docs/native_4090_validation_2026-10-04.md)。
 旧审查文档记录历史版本，不是本分支的运行证据。
 
 ## 专用环境
@@ -148,5 +149,6 @@ PYTHONNOUSERSITE=1 PYTHONDONTWRITEBYTECODE=1 CUDA_VISIBLE_DEVICES='' \
   python -s -m pytest -q tests --basetemp=/tmp/pie-native-tests
 ```
 
-本分支的具体检查结果见改动记录。GPU 仿真、4096 环境峰值显存、训练速度和
-行走/跑酷效果需要另行验证，CPU 结果不能证明这些效果。
+本分支已在 4090 上完成 GPU 后端检查、4096 环境两轮训练、续训一轮和单环境
+200 步回放；时间及显存见 [4090 验证记录](docs/native_4090_validation_2026-10-04.md)。
+长期训练稳定性、收敛和行走/跑酷效果仍待验证。

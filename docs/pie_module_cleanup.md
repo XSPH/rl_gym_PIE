@@ -37,6 +37,8 @@
 
 ## 第三阶段：删除冗余入口与 version 4
 
+提交：`5f9c33c`。
+
 - 删除整个 `legged_gym/pie/`，包括 JSON 配置加载器、`PIE_ROBOT_URDF` 资产入口与未引用的
   `models.py/learner.py`。任务名、命令行选项、原版环境五元组和 PIE 观测/监督接口保留。
 - 删除 RSL `PIERunnerCfg/PPOConfig`、独立 `train/evaluate/seed_everything`；
@@ -81,7 +83,7 @@ PYTHONNOUSERSITE=1 PYTHONDONTWRITEBYTECODE=1 CUDA_VISIBLE_DEVICES='' \
 
 正式训练规模为 4096 环境、24 步、5 epochs、4 minibatches、15000 轮、每 500 轮保存。
 
-## 验证边界
+## 本地收拢阶段的验证边界
 
 仅静态/CPU 检查；CPU 替身替代 Gym 原生接口，不创建仿真器。
 GPU 仿真、4096 环境性能与显存、服务器同步不在本次范围。
@@ -100,3 +102,6 @@ Gym 的 `SimParams.dt` 为 float32，实际控制周期约 `0.01999999955` 秒�
 该超时检查固定 Torch/NumPy 种子，并使用检查专用的 0.6 米出生高度，
 避免随机关节姿态在几步内碰地/倾斜、提前走入失败终止路径。
 正式配置仍为 0.3 米出生高度；短训练使用完整正式随机化与地形。
+
+后续已完成 GitHub/4090 部署、真实 GPU 后端检查、4096 环境两轮更新、续训一轮和
+单环境 200 步回放；结果及运行命令见 [4090 验证记录](native_4090_validation_2026-10-04.md)。
