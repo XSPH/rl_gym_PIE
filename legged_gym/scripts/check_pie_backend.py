@@ -35,8 +35,13 @@ def main():
     assert torch.equal(depth[0], depth[1]) and torch.isfinite(depth).all()
     cfg = Lite3PIECfg()
     cfg.seed = 7
+    torch.manual_seed(cfg.seed)
+    np.random.seed(cfg.seed)
     cfg.env.num_envs = 2
     cfg.env.episode_length_s = 0.04
+    # Keep randomized reset joints clear of the floor during this timeout
+    # check, so a contact/tilt failure does not replace the timeout label.
+    cfg.init_state.pos = [0.0, 0.0, 0.6]
     cfg.terrain.kinds = ["flat"]
     cfg.terrain.num_rows = cfg.terrain.num_cols = 1
     cfg.terrain.max_init_terrain_level = 0
