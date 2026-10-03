@@ -57,8 +57,15 @@ def main():
         assert tuple(obs["critic"].shape) == (2, 235)
         assert tuple(obs["depth"].shape) == (2, 2, 60, 80)
         actions = torch.full((2, 12), 0.1, device=env.device)
-        env.step(actions)
-        _, _, rewards, dones, info = env.step(actions)
+        # Gym stores sim.dt as float32: ceil(0.04 / env.dt) may be 3,
+        # rather than 2. Follow the native strict '>' timeout boundary and
+        # include the zero-action step already performed by BaseTask.reset().
+        assert torch.equal(env.episode_length_buf, env.episode_length_buf[:1].expand(2))
+        remaining = int(env.max_episode_length) + 1 - int(env.episode_length_buf[0])
+        for step in range(remaining):
+            _, _, rewards, dones, info = env.step(actions)
+            if step < remaining - 1:
+                assert not dones.any(), "Unexpected early termination in the flat-course check"
         assert dones.all() and info["time_outs"].all()
         assert torch.allclose(info["pie"]["terminal_proprio"][:, -12:], actions)
         obs = env.get_pie_observations()
