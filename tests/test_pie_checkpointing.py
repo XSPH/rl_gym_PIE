@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 import torch
 
-from native_rsl_helpers import TensorEnvironment, train_config
+from native_rsl_helpers import algorithm_config, TensorEnvironment, train_config
 from rsl_rl.runners.on_policy_runner_pie import PIEOnPolicyRunner
 
 
@@ -55,7 +55,7 @@ def test_boundary_checkpoint_matches_completed_updates_and_atomic_final(tmp_path
     learner.learn(2)
     boundary = torch.load(tmp_path / "model_500.pt", weights_only=True)
     final = torch.load(tmp_path / "checkpoint.pt", weights_only=True)
-    assert boundary["pie_checkpoint_version"] == final["pie_checkpoint_version"] == 3
+    assert boundary["pie_checkpoint_version"] == final["pie_checkpoint_version"] == 4
     assert boundary["iter"] == 500 and final["iter"] == 501
     assert boundary["rsl_rl_base"] == "v1.0.2"
     assert all(value["step"].item() == 1
@@ -88,7 +88,7 @@ def test_failed_save_preserves_previous_checkpoint(tmp_path, monkeypatch):
     assert not (tmp_path / "checkpoint.pt.tmp").exists()
 
 
-def test_schema3_resume_restores_adam_lr_iteration_and_learned_std(tmp_path):
+def test_schema4_resume_restores_adam_lr_iteration_and_learned_std(tmp_path):
     learner = runner(tmp_path)
     learner.learn(1)
     with torch.no_grad():
@@ -121,15 +121,52 @@ def test_schema3_resume_restores_adam_lr_iteration_and_learned_std(tmp_path):
     learner.writer.close()
 
 
-def test_old_schema_is_rejected_explicitly(tmp_path):
+@pytest.mark.parametrize('version', [None, 1, 2, 3, 5])
+@pytest.mark.parametrize('load_optimizer', [True, False])
+def test_old_schema_is_rejected_explicitly(tmp_path, version, load_optimizer):
     learner = runner()
     checkpoint = tmp_path / "old.pt"
     learner.save(checkpoint)
     saved = torch.load(checkpoint, weights_only=True)
-    saved["pie_checkpoint_version"] = 2
+    saved["pie_checkpoint_version"] = version
     torch.save(saved, checkpoint)
     with pytest.raises(ValueError, match="(?i)(schema|version|checkpoint)"):
-        learner.load(checkpoint)
+        learner.load(checkpoint, load_optimizer=load_optimizer)
+
+
+def test_schema4_records_unified_config_effective_lr_and_restores_rng(tmp_path):
+    from native_cpu_helpers import load_native_classes
+    classes = load_native_classes()
+    learner = runner()
+    learner.env.cfg = classes.config()
+    learner.alg.learning_rate = .0007
+    learner.alg.optimizer.param_groups[0]['lr'] = .0007
+    torch.manual_seed(912)
+    checkpoint = tmp_path / 'schema4.pt'
+    learner.save(checkpoint)
+    saved = torch.load(checkpoint, weights_only=True)
+    assert saved['pie_checkpoint_version'] == 4
+    assert saved['learning_rate'] == .0007
+    assert saved['environment_cfg'] == classes.helpers.class_to_dict(learner.env.cfg)
+    assert 'pie' not in saved['environment_cfg']
+    assert saved['environment_cfg']['camera']['history'] == 2
+    assert saved['cuda_rng'] == []  # This test runs with CUDA disabled.
+    expected = torch.rand(10)
+    resumed = runner()
+    resumed.load(checkpoint)
+    torch.testing.assert_close(torch.rand(10), expected, rtol=0, atol=0)
+    assert resumed.alg.learning_rate == .0007
+
+
+def test_checkpoint_activation_mismatch_is_rejected_before_loading_weights(tmp_path):
+    learner = runner()
+    checkpoint = tmp_path / 'activation.pt'
+    learner.save(checkpoint)
+    changed = train_config()
+    changed['policy']['activation'] = 'tanh'
+    resumed = PIEOnPolicyRunner(TensorEnvironment(), changed, device='cpu')
+    with pytest.raises(ValueError, match='model configuration'):
+        resumed.load(checkpoint)
 
 
 def test_original_logs_include_native_rewards_and_pie_metrics_once(tmp_path, capsys):
@@ -238,7 +275,6 @@ def test_parsed_native_config_numpy_fields_make_weights_only_safe_checkpoint(tmp
 
 
 def test_default_network_one_env_checkpoint_load_and_recurrent_inference(tmp_path):
-    from rsl_rl.algorithms.ppo_pie import PPOConfig
     from rsl_rl.modules.actor_critic_pie import ModelConfig
     class FullEnvironment(TensorEnvironment):
         def __init__(self, count):
@@ -254,7 +290,7 @@ def test_default_network_one_env_checkpoint_load_and_recurrent_inference(tmp_pat
                     "critic": torch.cat((prop, velocity, heightmap), -1),
                     "targets": {"velocity": velocity, "foot_clearance": torch.zeros(self.num_envs, 4),
                                 "heightmap": heightmap}}
-    cfg = train_config(cfg=PPOConfig(), model=ModelConfig(), rollout=24)
+    cfg = train_config(cfg=algorithm_config(), model=ModelConfig(), rollout=24)
     training = PIEOnPolicyRunner(FullEnvironment(4), cfg, log_dir=None, device="cpu")
     with torch.no_grad():
         training.alg.model.std.fill_(.64)
@@ -275,10 +311,10 @@ def test_default_network_one_env_checkpoint_load_and_recurrent_inference(tmp_pat
 
 
 def test_inference_env_count_does_not_silently_reduce_training_minibatches():
-    from rsl_rl.algorithms.ppo_pie import PIEPPO, PPOConfig
+    from rsl_rl.algorithms.ppo_pie import PIEPPO
     from rsl_rl.modules.actor_critic_pie import PIEActorCritic
     from native_rsl_helpers import collect_native, model_config
-    algorithm = PIEPPO(PIEActorCritic(model_config()), device="cpu", **PPOConfig().as_native_kwargs())
+    algorithm = PIEPPO(PIEActorCritic(model_config()), device="cpu", **algorithm_config())
     environment = TensorEnvironment(count=1, resets={1: (0, False)})
     collect_native(algorithm, environment, steps=2)
     with pytest.raises(ValueError, match="num_envs >= minibatches"):

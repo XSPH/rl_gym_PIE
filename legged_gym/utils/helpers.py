@@ -231,8 +231,8 @@ def _restore_fields(destination, values, path=""):
 
 
 def restore_playback_config(env_cfg, checkpoint):
-    if checkpoint.get("pie_checkpoint_version") != 3:
-        raise ValueError("This branch requires a native PIE version-3 checkpoint; "
+    if checkpoint.get("pie_checkpoint_version") != 4:
+        raise ValueError("This branch requires a native PIE version-4 checkpoint; "
                          "old PIE models are not supported")
     environment = checkpoint.get("environment_cfg")
     if not isinstance(environment, dict):
@@ -256,4 +256,4 @@ def restore_playback_config(env_cfg, checkpoint):
     cfg.domain_rand.push_robots = False
     cfg.terrain.curriculum = False
     cfg.domain_rand.randomize_pie = False
-    return cfg, "native PIE checkpoint configuration (version 3)"
+    return cfg, "native PIE checkpoint configuration (version 4)"

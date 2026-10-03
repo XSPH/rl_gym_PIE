@@ -4,8 +4,8 @@ from copy import deepcopy
 import pytest
 import torch
 
-from native_rsl_helpers import TensorEnvironment, collect_native, model_config, rollout
-from rsl_rl.algorithms.ppo_pie import PIEPPO, PPOConfig
+from native_rsl_helpers import algorithm_config, TensorEnvironment, collect_native, model_config, rollout
+from rsl_rl.algorithms.ppo_pie import PIEPPO
 from rsl_rl.modules.actor_critic_pie import PIEActorCritic
 
 
@@ -50,7 +50,7 @@ def test_native_actor_probability_replay_and_partial_recurrent_reset():
 
 
 def test_native_storage_uses_pre_reset_successor_and_truefinal_value_once():
-    cfg = PPOConfig(epochs=1, minibatches=1, gamma=.9, gae_lambda=.95)
+    cfg = algorithm_config(num_learning_epochs=1, num_mini_batches=1, gamma=.9, lam=.95)
     algorithm, batch = rollout(cfg)
     first, timeout, last = batch["frames"]
     assert first["terminated"].tolist() == [True, False, False]
@@ -77,7 +77,7 @@ def test_native_storage_uses_pre_reset_successor_and_truefinal_value_once():
 
 
 def test_joint_update_trains_actor_cnn_gru_and_all_auxiliary_heads():
-    algorithm, batch = rollout(PPOConfig(epochs=2, minibatches=2, schedule="fixed"))
+    algorithm, batch = rollout(algorithm_config(num_learning_epochs=2, num_mini_batches=2, schedule="fixed"))
     before = {name: value.detach().clone() for name, value in algorithm.model.named_parameters()}
     losses = algorithm.update()
     assert isinstance(losses, tuple) and len(losses) == 2
@@ -93,7 +93,7 @@ def test_joint_update_trains_actor_cnn_gru_and_all_auxiliary_heads():
 
 def test_replay_under_updated_weights_preserves_continuing_episode_memory():
     model = PIEActorCritic(model_config())
-    algorithm = PIEPPO(model, device="cpu", **PPOConfig(epochs=1, minibatches=1).as_native_kwargs())
+    algorithm = PIEPPO(model, device="cpu", **algorithm_config(num_learning_epochs=1, num_mini_batches=1))
     environment = TensorEnvironment(resets={1: (0, False), 3: (1, True)})
     batch, _ = collect_native(algorithm, environment)
     algorithm.update()

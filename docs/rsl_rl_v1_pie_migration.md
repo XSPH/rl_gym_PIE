@@ -1,5 +1,7 @@
 # Isaac Gym PIE：迁移至安装文档指定的 rsl_rl
 
+> 历史记录：对应模块收拢前的源码。当前目录、配置与 version 4 检查见 [模块收拢记录](pie_module_cleanup.md)。
+
 依据：`unitree_rl_gym/doc/setup_zh.md` 的 2.3 节和英文版对应章节，均要求 `git checkout v1.0.2`。
 本地官方克隆：`unitree_rl_gym/rsl_rl`。
 基线：`v1.0.2` / `2ad79cf0caa85b91721abfe358105f869a784121`。

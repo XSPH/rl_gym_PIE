@@ -1,9 +1,10 @@
 # Lite3 PIE：原版训练流程分支
 
 分支：`refactor/pie-native-training`。本分支以 Unitree RL Gym 和随项目保存的
-rsl_rl **v1.0.2** 实现 PIE，从头训练，仅加载本分支的 version-3 模型。
+rsl_rl **v1.0.2** 实现 PIE，从头训练，仅加载本分支的 version-4 模型。
 网络参数来源见 [PIE_NETWORK.md](PIE_NETWORK.md)，改动与验证边界见
-[改动记录](docs/native_training_refactor.md)。旧审查文档记录历史版本，不是本分支的运行证据。
+[训练流程记录](docs/native_training_refactor.md)与 [模块收拢记录](docs/pie_module_cleanup.md)。
+旧审查文档记录历史版本，不是本分支的运行证据。
 
 ## 专用环境
 
@@ -47,7 +48,9 @@ python -s legged_gym/scripts/train.py --task=lite3_pie --headless \
 ```
 
 恢复模型、Adam、学习率和累计轮数，仿真回合与 GRU 记忆重新开始。
-加载第 500 轮后，默认再训练 14500 轮。旧 PIE 模型会明确拒绝。
+加载第 500 轮后，默认再训练 14500 轮。version 1/2/3 与未知格式均明确拒绝。
+version 4 保存统一环境配置、有效网络和训练配置、优化器、当前学习率、累计轮数、
+时间/步数及 PyTorch/CUDA 随机状态；仿真器、相机队列和 GRU 不作为状态快照保存。
 
 ## 回放本分支模型
 
@@ -64,6 +67,30 @@ python -s legged_gym/scripts/play.py --task=lite3_pie \
 `--num_envs 5`。这属于回放环境数量选择，不改变训练配置。
 
 ## 原版流程与 PIE 扩展
+
+最终目录中任务与工具位于原版对应位置：
+
+```text
+legged_gym/
+  envs/pie/
+    lite3_config.py       # 唯一环境配置：env/asset/control/terrain/domain_rand/camera
+    lite3.py              # LeggedRobot 子类，含传感器与任务生命周期扩展
+  utils/
+    terrain.py            # 原版 Terrain 和 PIE 地形/地图/高度采样扩展
+    warp_camera.py        # 传感器初始化时惰性导入
+    kinematics.py         # URDF FK
+    math.py               # yaw 与轴角
+    helpers.py            # 原版通用工具与回放配置恢复
+rsl_rl/rsl_rl/
+  modules/actor_critic_pie.py
+  algorithms/ppo_pie.py
+  storage/rollout_storage_pie.py
+  runners/on_policy_runner_pie.py
+```
+
+配置直接修改 `Lite3PIECfg` 的嵌套类。URDF 唯一入口为 `asset.file`。
+`domain_rand.randomize_pie` 控制 COM、增益、电机、动作延迟和相机安装随机化；
+原版摩擦、附加质量和推扰由各自开关控制。正式规模仍为 4096/24/5/4/15000/500。
 
 `train.py → task_registry → OnPolicyRunner.learn → PPO.act → LeggedRobot.step`
 使用原版接口。环境返回 `obs, privileged_obs, rewards, dones, extras`。

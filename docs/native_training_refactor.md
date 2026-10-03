@@ -2,6 +2,7 @@
 
 日期：2026-10-03。分支：`refactor/pie-native-training`。
 开发 worktree：`/home/asuka/Legged/parkour/rl_gym_PIE_native`。
+后续目录/配置收拢、version 4 格式与最新检查结果见 [模块收拢记录](pie_module_cleanup.md)。
 
 ## 授权与基线
 
@@ -64,8 +65,8 @@ Critic 为前馈网络；Actor 仅用本体/视觉及估计值，不能读取真
 
 保持完整24步 recurrent训练，图像仍FP32；训练缓存每个逻辑minibatch独立，
 保留CNN/GRU梯度，不缓存detach的采样latent来训练策略。
-新模型格式 version3 保存 native states、实际训练/环境配置、累计轮数和随机状态。
-不支持旧version1/2模型；同分支续训重新建立仿真回合与GRU记忆。
+当前模型格式 version4 保存 native states、实际训练/环境配置、累计轮数和随机状态。
+不支持旧version1/2/3模型；同分支续训重新建立仿真回合与GRU记忆。
 保存的是 PyTorch/CUDA 随机状态，不是完整仿真状态快照。
 
 整合审查额外修复：原版推扰只更新被选中机器人的缓存；日志上下文不再递归引用

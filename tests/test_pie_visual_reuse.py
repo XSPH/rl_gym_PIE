@@ -5,10 +5,10 @@ import json
 import pytest
 import torch
 
-from rsl_rl.algorithms.ppo_pie import PIEPPO, PPOConfig, clone_observation
+from rsl_rl.algorithms.ppo_pie import PIEPPO, clone_observation
 from rsl_rl.modules.actor_critic_pie import ModelConfig, PIEActorCritic, PIEDepthFeatureCache
 from rsl_rl.storage.rollout_storage_pie import DepthFramePool, PIERolloutStorage
-from native_rsl_helpers import collect_native
+from native_rsl_helpers import algorithm_config, collect_native
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -181,9 +181,9 @@ def test_indexed_multi_epoch_ppo_matches_legacy_full_recurrent_updates(precision
     torch.manual_seed(51)
     reference_model = _model()
     indexed_model = deepcopy(reference_model)
-    cfg = PPOConfig(epochs=3, minibatches=2, schedule="fixed")
-    plain = PIEPPO(reference_model, device="cpu", **cfg.as_native_kwargs())
-    indexed = PIEPPO(indexed_model, device="cpu", **cfg.as_native_kwargs())
+    cfg = algorithm_config(num_learning_epochs=3, num_mini_batches=2, schedule="fixed")
+    plain = PIEPPO(reference_model, device="cpu", **cfg)
+    indexed = PIEPPO(indexed_model, device="cpu", **cfg)
     batches, finals = [], []
     for algorithm, use_indices in ((plain, False), (indexed, True)):
         env = _RecordedEnvironment(use_indices)

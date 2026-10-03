@@ -5,8 +5,7 @@ import pytest
 import torch
 from torch.distributions import Normal, kl_divergence
 
-from native_rsl_helpers import rollout
-from rsl_rl.algorithms.ppo_pie import PPOConfig
+from native_rsl_helpers import algorithm_config, rollout
 from rsl_rl.modules.actor_critic_pie import ModelConfig, PIEActorCritic
 
 
@@ -19,14 +18,24 @@ def _single_cpu_thread():
 
 
 def test_formal_defaults_are_passed_to_native_ppo_constructor():
-    cfg = PPOConfig()
+    cfg = algorithm_config()
     algorithm, _ = rollout(cfg)
-    assert cfg.learning_rate == 1e-3 and cfg.epochs == 5 and cfg.minibatches == 4
-    assert cfg.schedule == "adaptive" and cfg.desired_kl == .01
+    assert cfg["learning_rate"] == 1e-3 and cfg["num_learning_epochs"] == 5 and cfg["num_mini_batches"] == 4
+    assert cfg["schedule"] == "adaptive" and cfg["desired_kl"] == .01
     assert algorithm.num_learning_epochs == 5 and algorithm.num_mini_batches == 4
     assert algorithm.learning_rate == algorithm.optimizer.param_groups[0]["lr"] == 1e-3
     assert algorithm.gamma == .99 and algorithm.lam == .95
     assert algorithm.use_clipped_value_loss
+
+
+@pytest.mark.parametrize('override,message', [
+    ({'schedule': 'unknown'}, 'schedule'),
+    ({'desired_kl': 0}, 'desired_kl'),
+    ({'desired_kl': float('inf')}, 'desired_kl'),
+])
+def test_invalid_native_algorithm_parameters_fail_at_initialization(override, message):
+    with pytest.raises(ValueError, match=message):
+        rollout(algorithm_config(**override))
 
 
 def test_native_policy_configuration_controls_std_width_and_activation():
@@ -71,7 +80,7 @@ def test_behavior_distributions_share_native_storage_and_are_immutable():
 ])
 def test_lr_schedule_precedes_each_native_optimizer_step(
         monkeypatch, shift, scale, lr, schedule, desired_kl, expected_lr):
-    algorithm, _ = rollout(PPOConfig(epochs=1, minibatches=1, learning_rate=lr,
+    algorithm, _ = rollout(algorithm_config(num_learning_epochs=1, num_mini_batches=1, learning_rate=lr,
                                     schedule=schedule, desired_kl=desired_kl))
     with torch.no_grad():
         algorithm.model.actor[-1].bias.add_(shift)
@@ -89,7 +98,7 @@ def test_lr_schedule_precedes_each_native_optimizer_step(
 
 
 def test_policy_kl_unrolls_recurrent_gaussians_and_keeps_vae_kl_separate():
-    algorithm, batch = rollout(PPOConfig(epochs=1, minibatches=1, schedule="fixed"))
+    algorithm, batch = rollout(algorithm_config(num_learning_epochs=1, num_mini_batches=1, schedule="fixed"))
     with torch.no_grad():
         algorithm.model.actor[0].weight.add_(.05)
         algorithm.model.gru.weight_hh.add_(.03)
@@ -111,7 +120,7 @@ def test_policy_kl_unrolls_recurrent_gaussians_and_keeps_vae_kl_separate():
 
 
 def test_adaptive_lr_runs_for_every_whole_trajectory_minibatch(monkeypatch):
-    algorithm, _ = rollout(PPOConfig(epochs=2, minibatches=2))
+    algorithm, _ = rollout(algorithm_config(num_learning_epochs=2, num_mini_batches=2))
     with torch.no_grad():
         algorithm.model.actor[-1].bias.add_(1)
     original = algorithm.optimizer.step
@@ -126,7 +135,7 @@ def test_adaptive_lr_runs_for_every_whole_trajectory_minibatch(monkeypatch):
 
 def test_activation_checkpoint_preserves_joint_update_and_gradients(monkeypatch):
     import rsl_rl.modules.actor_critic_pie as network
-    settings = PPOConfig(epochs=2, minibatches=2, schedule="fixed")
+    settings = algorithm_config(num_learning_epochs=2, num_mini_batches=2, schedule="fixed")
     reference, _ = rollout(settings)
     checkpointed, _ = rollout(settings)
     torch.manual_seed(17)

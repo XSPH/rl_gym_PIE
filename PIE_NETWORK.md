@@ -2,7 +2,7 @@
 
 当前 Gym 分支 `refactor/pie-native-training` 保留本文默认网络形状。
 Actor/Critic 层宽、激活与探索噪声以原版 `train_cfg.policy` 字段为准，
-保存解析后的有效 `model_config`。只接受本分支 version-3 模型；不兼容历史模型。
+保存解析后的有效 `model_config`。只接受本分支 version-4 模型；不兼容历史模型。
 原版流程接入与最新验证见 [重构记录](docs/native_training_refactor.md)。
 
 网络设计日期：2026-10-01；正式训练配置修订：2026-10-02。两平台采用相同网络尺寸，各自在项目内保存实现与配置。本文确定复现基线，不声称恢复了 PIE 作者未公开的配置，也不声称经过收敛或速度验证。

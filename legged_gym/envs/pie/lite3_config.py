@@ -130,7 +130,7 @@ class Lite3PIECfgPPO(LeggedRobotCfgPPO):
         super().__init__()
         from rsl_rl.modules import ModelConfig
         model = asdict(ModelConfig())
-        for native_owned in ('initial_std', 'actor_hidden_dims', 'critic_hidden_dims'):
+        for native_owned in ('initial_std', 'actor_hidden_dims', 'critic_hidden_dims', 'activation'):
             model.pop(native_owned)
         self.policy.model_config = model
         self.algorithm.estimation_weight = 1.0

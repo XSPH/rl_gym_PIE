@@ -155,3 +155,27 @@ def test_native_quaternions_keep_xyzw_shapes_rotation_and_axis_angle(shape):
     quat = classes.math.axis_angle(axis, angle)
     assert quat.shape == (*shape, 4)
     torch.testing.assert_close(classes.math.quat_yaw(quat), angle, atol=3e-7, rtol=1e-6)
+
+
+def test_asset_file_is_the_only_urdf_entry_and_scan_dimension_is_derived(tmp_path, monkeypatch):
+    classes = load_native_classes()
+    cfg = classes.config()
+    bundled = Path(cfg.asset.file.format(LEGGED_GYM_ROOT_DIR=str(Path(__file__).resolve().parents[1])))
+    requested = tmp_path / 'requested.urdf'
+    requested.write_bytes(bundled.read_bytes())
+    cfg.asset.file = str(requested)
+    cfg.terrain.measured_points_x = [-.1, 0., .1]
+    cfg.terrain.measured_points_y = [0.]
+    monkeypatch.setenv('PIE_ROBOT_URDF', str(tmp_path / 'ignored.urdf'))
+    # Record the real task's pre-simulation setup without creating actors.
+    def native_init(task, cfg, *args):
+        task.cfg = cfg
+    monkeypatch.setattr(classes.base, '__init__', native_init)
+    task = classes.task(cfg, SimpleNamespace(dt=.005), None, 'cuda:0', True)
+    assert task.urdf == requested
+    assert task.cfg.asset.file == str(requested)
+    assert cfg.env.num_privileged_obs == 51
+    assert not hasattr(task, 'config')
+    cfg.asset.file = str(tmp_path / 'missing.urdf')
+    with pytest.raises(FileNotFoundError, match='Robot URDF'):
+        classes.task(cfg, SimpleNamespace(dt=.005), None, 'cuda:0', True)

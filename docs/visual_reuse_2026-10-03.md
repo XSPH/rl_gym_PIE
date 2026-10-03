@@ -2,7 +2,7 @@
 
 > 历史记录：下面描述的是重构前 `unitree_rl_gym` 的修改与 53 项检查。
 > 本分支已将相同视觉优化适配原版训练接口，取消旧模型兼容；当前实现和验证结果
-> 以 [原版训练流程重构记录](native_training_refactor.md) 为准。
+> 以 [原版训练流程重构记录](native_training_refactor.md) 和 [模块收拢记录](pie_module_cleanup.md) 为准。
 
 2026-10-03：仅修改本地 `unitree_rl_gym`。未修改 mjlab、历史回放副本、
 GitHub 发布副本或远程服务器；未启动仿真或 GPU 训练。
@@ -25,7 +25,7 @@ GitHub 发布副本或远程服务器；未启动仿真或 GPU 训练。
 
 | 文件 | 修改 |
 | --- | --- |
-| `legged_gym/pie/sensors_and_rollout.py` | 为真实捕获的单张图像分配全局唯一 int64 ID，随延迟队列和两帧历史同步移动；局部 reset 仅替换对应行 |
+| `legged_gym/envs/pie/lite3.py`（当前路径） | 为真实捕获的单张图像分配全局唯一 int64 ID，随延迟队列和两帧历史同步移动；局部 reset 仅替换对应行 |
 | `rsl_rl/rsl_rl/storage/rollout_storage_pie.py` | 添加 `DepthFramePool`，每个 rollout 只保存唯一单帧图像；逐控制步保存环境×历史的索引；支持按原顺序无损恢复两帧输入 |
 | `rsl_rl/rsl_rl/modules/actor_critic_pie.py` | 分离纯深度编码接口，添加按完整两帧 ID 判断的 CNN 特征缓存，通过非原地 `index_copy` 保留计算图 |
 | `rsl_rl/rsl_rl/algorithms/ppo_pie.py` | collect、每个逻辑 PPO minibatch、更新后的 hidden 重放分别创建独立缓存；新增实际编码数量、复用比例和帧池大小指标 |

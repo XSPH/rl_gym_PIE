@@ -1,4 +1,4 @@
-"""Only the native branch's schema3 configuration is accepted for playback."""
+"""Only the native branch's schema4 configuration is accepted for playback."""
 import pytest
 
 from native_cpu_helpers import class_to_dict, load_native_classes
@@ -19,7 +19,7 @@ def test_native_checkpoint_restores_training_units_and_keeps_runtime_env_count()
     saved.rewards.only_positive_rewards = False
     saved.camera.pitch_degrees = 28.
     cfg, source = restore_playback_config(training, {
-        "pie_checkpoint_version": 3, "environment_cfg": class_to_dict(saved)})
+        "pie_checkpoint_version": 4, "environment_cfg": class_to_dict(saved)})
     assert cfg.env.num_envs == 4
     assert cfg.control.action_scale == .3
     assert cfg.commands.resampling_time == 5.
@@ -28,7 +28,7 @@ def test_native_checkpoint_restores_training_units_and_keeps_runtime_env_count()
     assert cfg.normalization.clip_observations == 50.
     assert not cfg.rewards.only_positive_rewards
     assert cfg.camera.pitch_degrees == 28.
-    assert "version 3" in source
+    assert "version 4" in source
     assert training.control.action_scale == .25
     assert training.rewards.only_positive_rewards
     assert training.noise.add_noise and training.domain_rand.push_robots
@@ -39,7 +39,7 @@ def test_playback_disables_randomization_without_changing_saved_reward_scales():
     training = classes.config()
     snapshot = class_to_dict(training)
     cfg, _ = restore_playback_config(training, {
-        "pie_checkpoint_version": 3, "environment_cfg": snapshot})
+        "pie_checkpoint_version": 4, "environment_cfg": snapshot})
     assert not cfg.noise.add_noise
     assert not cfg.domain_rand.randomize_friction
     assert not cfg.domain_rand.randomize_base_mass
@@ -50,17 +50,17 @@ def test_playback_disables_randomization_without_changing_saved_reward_scales():
     assert class_to_dict(training) == snapshot
 
 
-@pytest.mark.parametrize("version", [None, 1, 2, 4])
+@pytest.mark.parametrize("version", [None, 1, 2, 3, 5])
 def test_old_or_unknown_checkpoint_schema_is_rejected(version):
     classes = load_native_classes()
-    with pytest.raises(ValueError, match="version-3"):
+    with pytest.raises(ValueError, match="version-4"):
         restore_playback_config(classes.config(), {"pie_checkpoint_version": version})
 
 
 def test_missing_environment_config_does_not_silently_use_current_defaults():
     classes = load_native_classes()
     with pytest.raises(ValueError, match="environment_cfg"):
-        restore_playback_config(classes.config(), {"pie_checkpoint_version": 3})
+        restore_playback_config(classes.config(), {"pie_checkpoint_version": 4})
 
 
 def test_real_native_helper_serializes_config_fields_and_roundtrips_without_methods():
@@ -79,7 +79,7 @@ def test_real_native_helper_serializes_config_fields_and_roundtrips_without_meth
     classes.helpers.update_class_from_dict(changed, snapshot)
     assert serialize(changed) == snapshot
     restored, _ = restore_playback_config(cfg, {
-        "pie_checkpoint_version": 3, "environment_cfg": snapshot})
+        "pie_checkpoint_version": 4, "environment_cfg": snapshot})
     assert restored.control.decimation == 4 and restored.camera.history == 2
 
 
@@ -99,7 +99,7 @@ def test_playback_of_parsed_runtime_cfg_accepts_recomputed_push_interval_and_see
     original = classes.config()
     original.env.num_envs = 1
     restored, _ = restore_playback_config(original, {
-        "pie_checkpoint_version": 3, "environment_cfg": snapshot})
+        "pie_checkpoint_version": 4, "environment_cfg": snapshot})
     assert restored.env.num_envs == 1
     assert not restored.domain_rand.push_robots
     assert restored.domain_rand.friction_range == [.2, 1.2]

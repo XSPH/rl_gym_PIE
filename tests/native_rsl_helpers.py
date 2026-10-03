@@ -3,8 +3,17 @@ from dataclasses import asdict
 
 import torch
 
-from rsl_rl.algorithms.ppo_pie import PIEPPO, PPOConfig
+from rsl_rl.algorithms.ppo_pie import PIEPPO
 from rsl_rl.modules.actor_critic_pie import ModelConfig, PIEActorCritic
+
+
+def algorithm_config(**overrides):
+    """Use the real registered task's native algorithm fields, with CPU overrides."""
+    from native_cpu_helpers import load_native_classes
+    classes = load_native_classes()
+    values = classes.helpers.class_to_dict(classes.train_config().algorithm)
+    values.update(overrides)
+    return values
 
 
 def model_config(**overrides):
@@ -27,7 +36,7 @@ def train_config(cfg=None, model=None, rollout=3, save_interval=500):
                        "num_steps_per_env": rollout, "save_interval": save_interval,
                        "max_iterations": 15000},
             "policy": {"model_config": asdict(model or model_config())},
-            "algorithm": (cfg or PPOConfig(epochs=1, minibatches=1)).as_native_kwargs()}
+            "algorithm": (cfg or algorithm_config(num_learning_epochs=1, num_mini_batches=1))}
 
 
 class TensorEnvironment:
@@ -119,7 +128,7 @@ def rollout(cfg=None, steps=3, indexed=True):
     torch.manual_seed(41)
     model = PIEActorCritic(model_config())
     algorithm = PIEPPO(model, device="cpu",
-                       **(cfg or PPOConfig(epochs=1, minibatches=1)).as_native_kwargs())
+                       **(cfg or algorithm_config(num_learning_epochs=1, num_mini_batches=1)))
     environment = TensorEnvironment(count=max(3, algorithm.num_mini_batches), indexed=indexed)
     batch, _ = collect_native(algorithm, environment, steps)
     return algorithm, batch

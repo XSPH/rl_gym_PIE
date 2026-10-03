@@ -1,44 +1,9 @@
 """PIE recurrent joint estimator/PPO extension of RSL-RL v1.0.2."""
-from dataclasses import dataclass
-from typing import Optional
 import math
 import torch
 from .ppo import PPO
 from rsl_rl.storage.rollout_storage_pie import PIERolloutStorage
 from rsl_rl.modules.actor_critic_pie import PIEDepthFeatureCache
-
-@dataclass
-class PPOConfig:
-    learning_rate: float = 1e-3
-    gamma: float = 0.99
-    gae_lambda: float = 0.95
-    clip: float = 0.2
-    epochs: int = 5
-    minibatches: int = 4
-    entropy_weight: float = 0.01
-    value_weight: float = 1.0
-    estimation_weight: float = 1.0
-    kl_weight: float = 1.0
-    max_grad_norm: float = 1.0
-    schedule: str = "adaptive"
-    desired_kl: Optional[float] = 0.01
-
-    def __post_init__(self):
-        if self.schedule not in ("fixed", "adaptive"):
-            raise ValueError("schedule must be fixed or adaptive")
-        if self.desired_kl is not None and (
-                not math.isfinite(self.desired_kl) or self.desired_kl <= 0):
-            raise ValueError("desired_kl must be positive and finite, or None")
-
-    def as_native_kwargs(self):
-        return {
-            "num_learning_epochs": self.epochs, "num_mini_batches": self.minibatches,
-            "clip_param": self.clip, "gamma": self.gamma, "lam": self.gae_lambda,
-            "value_loss_coef": self.value_weight, "entropy_coef": self.entropy_weight,
-            "learning_rate": self.learning_rate, "max_grad_norm": self.max_grad_norm,
-            "schedule": self.schedule, "desired_kl": self.desired_kl,
-            "estimation_weight": self.estimation_weight, "kl_weight": self.kl_weight,
-        }
 
 def clone_observation(obs, depth_pool=None):
     stored = {key: value.detach().clone() for key, value in obs.items()
@@ -53,6 +18,11 @@ def clone_observation(obs, depth_pool=None):
 class PIEPPO(PPO):
     """PIE side inputs and recurrent replay within the native PPO lifecycle."""
     def __init__(self, actor_critic, estimation_weight=1.0, kl_weight=1.0, **kwargs):
+        if kwargs.get('schedule', 'fixed') not in ('fixed', 'adaptive'):
+            raise ValueError("schedule must be fixed or adaptive")
+        desired_kl = kwargs.get('desired_kl', .01)
+        if desired_kl is not None and (not math.isfinite(desired_kl) or desired_kl <= 0):
+            raise ValueError("desired_kl must be positive and finite, or None")
         super().__init__(actor_critic, **kwargs)
         self.estimation_weight = estimation_weight
         self.kl_weight = kl_weight

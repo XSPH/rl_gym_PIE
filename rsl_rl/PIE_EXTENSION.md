@@ -11,7 +11,7 @@ This directory is vendored in the parent PIE repository.
 the original `act → env.step → process_env_step → compute_returns → update`
 loop and the native five-element environment return value. Hooks prepare
 multimodal actor inputs, choose `torch.no_grad()` collection, append metrics, and
-save schema-3 checkpoints. No separate PIE collection or learning loop exists.
+save schema-4 checkpoints. No separate PIE collection or learning loop exists.
 Non-PIE tasks continue to use tensor observations and inference-mode collection.
 
 `PIEPPO` inherits `PPO.update()` directly. The shared implementation owns policy
@@ -35,8 +35,9 @@ The task passes native `runner`, `policy`, and `algorithm` configuration diction
 Native policy fields `init_noise_std`, `actor_hidden_dims`, `critic_hidden_dims`,
 and `activation` are authoritative and resolved into the effective model config.
 Additional encoder/head settings live in `policy.model_config`.
-`PPOConfig` and `PIERunnerCfg` are optional convenience converters for standalone
-CPU utilities; the registered task does not keep another mutable PPO config.
+Algorithm parameters use the native `algorithm` dictionary. `ModelConfig`
+describes the additional network structure. Training and replay enter through
+the registered task and the original Gym scripts.
 
 Retained default architecture:
 
@@ -81,8 +82,9 @@ The same iteration metrics are written to `metrics.jsonl`.
 PIE iteration numbers count completed updates. Periodic `model_500.pt`,
 `model_1000.pt`, etc. are saved every 500 updates, and `checkpoint.pt` is saved at
 the end of a learn call. Atomic replacement protects an existing checkpoint
-against an interrupted write. Schema 3 stores native model/optimizer keys,
-effective model config, native training/environment configs (NumPy values normalized
+against an interrupted write. Schema 4 stores native model/optimizer keys,
+effective model config and policy activation, current learning rate, unified
+native training/environment configs (NumPy values normalized
 to ordinary Python scalars/lists for safe weights-only loading), RNG states,
 completed iteration, and accumulated time/steps. Loading earlier formats is
 explicitly rejected. Playback can construct a one-environment runner while retaining
@@ -93,7 +95,7 @@ and GRU state restart, as in native RSL-RL resume.
 CPU checks exercise native runner ordering, default stock PPO behavior,
 actor privacy, timeout bootstrap, recurrent resets/replay, joint gradients,
 dense/indexed visual equivalence, clipping/scheduling, logs, atomic checkpoints,
-and schema-3 resume. GPU simulation, 4096-environment memory use, throughput, and
+and schema-4 resume. GPU simulation, 4096-environment memory use, throughput, and
 training convergence require separate GPU validation and are not claimed here.
 
 Install editable into the separate native Conda environment from the parent root:

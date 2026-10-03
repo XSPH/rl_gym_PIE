@@ -1,44 +1,12 @@
 """PIE hooks on the original RSL-RL v1.0.2 runner; no second learn loop."""
-from dataclasses import asdict, dataclass, field, is_dataclass
+from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from copy import deepcopy
 import json
-import random
 import numpy as np
 import torch
 from .on_policy_runner import OnPolicyRunner
-from rsl_rl.modules.actor_critic_pie import ModelConfig, PIEActorCritic, PIEDepthFeatureCache
-from rsl_rl.algorithms.ppo_pie import PPOConfig
-
-
-@dataclass
-class PIERunnerCfg:
-    """Convenience conversion only; registered tasks use native train_cfg."""
-    seed: int = 1
-    num_steps_per_env: int = 24
-    max_iterations: int = 15000
-    save_interval: int = 500
-    experiment_name: str = "lite3_pie_native"
-    model: ModelConfig = field(default_factory=ModelConfig)
-    ppo: PPOConfig = field(default_factory=PPOConfig)
-
-    def to_native_dict(self):
-        return {
-            "seed": self.seed,
-            "runner": {"policy_class_name": "PIEActorCritic", "algorithm_class_name": "PIEPPO",
-                       "runner_class_name": "PIEOnPolicyRunner", "num_steps_per_env": self.num_steps_per_env,
-                       "save_interval": self.save_interval, "max_iterations": self.max_iterations,
-                       "experiment_name": self.experiment_name, "completed_iteration_numbering": True},
-            "policy": {"model_config": asdict(self.model)},
-            "algorithm": self.ppo.as_native_kwargs(),
-        }
-
-
-def seed_everything(seed):
-    random.seed(seed)
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
+from rsl_rl.modules.actor_critic_pie import ModelConfig
 
 
 def plain_config(value):
@@ -203,12 +171,13 @@ class PIEOnPolicyRunner(OnPolicyRunner):
             "model_state_dict": self.alg.actor_critic.state_dict(),
             "optimizer_state_dict": self.alg.optimizer.state_dict(),
             "iter": self.current_learning_iteration, "infos": infos,
+            "learning_rate": float(self.alg.learning_rate),
             "model_config": asdict(self.model_cfg), "train_config": plain_config(self.train_cfg),
             "environment_cfg": plain_config(getattr(self.env, "cfg", {})),
             "seed": self.train_cfg.get("seed", 1), "torch_rng": torch.get_rng_state(),
             "cuda_rng": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else [],
             "total_timesteps": self.tot_timesteps, "total_time": self.tot_time,
-            "rsl_rl_base": "v1.0.2", "pie_checkpoint_version": 3,
+            "rsl_rl_base": "v1.0.2", "pie_checkpoint_version": 4,
         }
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -222,8 +191,8 @@ class PIEOnPolicyRunner(OnPolicyRunner):
 
     def load(self, path, load_optimizer=True):
         saved = torch.load(path, map_location=self.device, weights_only=True)
-        if saved.get("pie_checkpoint_version") != 3 or saved.get("rsl_rl_base") != "v1.0.2":
-            raise ValueError("This branch accepts only native PIE schema-3 checkpoints")
+        if saved.get("pie_checkpoint_version") != 4 or saved.get("rsl_rl_base") != "v1.0.2":
+            raise ValueError("This branch accepts only native PIE version-4 checkpoints")
         stored_config, current_config = asdict(ModelConfig(**saved["model_config"])), asdict(self.model_cfg)
         stored_config.pop("initial_std")
         current_config.pop("initial_std")
@@ -232,7 +201,9 @@ class PIEOnPolicyRunner(OnPolicyRunner):
         self.alg.actor_critic.load_state_dict(saved["model_state_dict"])
         if load_optimizer:
             self.alg.optimizer.load_state_dict(saved["optimizer_state_dict"])
-            self.alg.learning_rate = float(self.alg.optimizer.param_groups[0]["lr"])
+            self.alg.learning_rate = float(saved['learning_rate'])
+            for group in self.alg.optimizer.param_groups:
+                group['lr'] = self.alg.learning_rate
         self.current_learning_iteration = int(saved["iter"])
         self.tot_timesteps = int(saved.get("total_timesteps", 0))
         self.tot_time = float(saved.get("total_time", 0.0))
@@ -270,40 +241,3 @@ class PIEOnPolicyRunner(OnPolicyRunner):
                                 capture_output=True, text=True, check=True)
         (output / "upstream_commit.txt").write_text(result.stdout)
         (output / "rsl_rl_base_commit.txt").write_text("2ad79cf0caa85b91721abfe358105f869a784121\n")
-
-
-def train(env, iterations=15000, rollout_steps=24, output_dir="runs/lite3_pie_native",
-          seed=1, model_config=None, ppo_config=None, init_at_random_ep_len=True):
-    cfg = PIERunnerCfg(seed=seed, max_iterations=iterations, num_steps_per_env=rollout_steps,
-                       model=model_config or ModelConfig(), ppo=ppo_config or PPOConfig())
-    runner = PIEOnPolicyRunner(env, cfg.to_native_dict(), output_dir, device=env.device)
-    return runner.learn(iterations, init_at_random_ep_len)
-
-
-@torch.no_grad()
-def evaluate(env, checkpoint, steps=20):
-    """Bounded schema-3 replay using the native environment interface."""
-    if steps < 1:
-        raise ValueError("steps must be positive")
-    saved = torch.load(checkpoint, map_location=env.device, weights_only=True)
-    if saved.get("pie_checkpoint_version") != 3:
-        raise ValueError("This branch accepts only native PIE schema-3 checkpoints")
-    runner = PIEOnPolicyRunner(env, saved["train_config"], log_dir=None, device=env.device)
-    runner.load(checkpoint, load_optimizer=False)
-    policy = runner.get_inference_policy()
-    observations = env.get_observations()
-    reward_sum, terminations, timeouts = 0.0, 0, 0
-    reset_reasons = {}
-    for _ in range(steps):
-        actions = policy(observations)
-        observations, _, rewards, dones, infos = env.step(actions)
-        runner.alg.actor_critic.reset(dones)
-        timeout = infos.get("time_outs", torch.zeros_like(dones)).bool()
-        reward_sum += float(rewards.mean())
-        terminations += int((dones.bool() & ~timeout).sum())
-        timeouts += int(timeout.sum())
-        for name, flags in infos.get("pie", {}).get("termination_reasons", {}).items():
-            reset_reasons[name] = reset_reasons.get(name, 0) + int(flags.sum())
-    return {"steps": steps, "mean_reward": reward_sum / steps, "terminations": terminations,
-            "timeouts": timeouts, "reset_reasons": reset_reasons,
-            "claim": "bounded checkpoint evaluation; not a paper-performance benchmark"}

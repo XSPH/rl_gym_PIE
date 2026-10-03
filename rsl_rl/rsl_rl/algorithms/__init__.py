@@ -29,4 +29,4 @@
 # Copyright (c) 2021 ETH Zurich, Nikita Rudin
 
 from .ppo import PPO
-from .ppo_pie import PIEPPO, PPOConfig
+from .ppo_pie import PIEPPO
