@@ -85,3 +85,10 @@ PYTHONNOUSERSITE=1 PYTHONDONTWRITEBYTECODE=1 CUDA_VISIBLE_DEVICES='' \
 
 仅静态/CPU 检查；CPU 替身替代 Gym 原生接口，不创建仿真器。
 GPU 仿真、4096 环境性能与显存、服务器同步不在本次范围。
+
+## 后续服务器检查
+
+服务器首次 CPU 检查为 102 passed、1 failed：默认网络参数哈希相同，
+前向输出与本地基线最大绝对误差 `4.47e-8`。为允许不同 CPU 内核的 FP32 舍入差异，
+输出对照使用 `atol=1e-7, rtol=1e-6`；参数和地形哈希仍严格一致。
+GPU 与部署结果另记于服务器验证记录。

@@ -72,9 +72,11 @@ def test_default_network_parameters_and_recurrent_output_match_previous_seed():
                'depth': torch.linspace(-.2, .2, 60*80).reshape(1, 1, 60, 80).repeat(1, 2, 1, 1),
                'critic': torch.cat((prop, torch.zeros(1, 190)), -1)}
         with torch.no_grad():
+            # CPU kernels can differ between hosts; keep the weight digest exact
+            # while allowing FP32 roundoff in the golden forward outputs.
             for output in expected['actions']:
-                torch.testing.assert_close(model.act_inference(obs), torch.tensor(output), rtol=0, atol=0)
-            torch.testing.assert_close(model.evaluate(obs['critic']), torch.tensor(expected['critic']), rtol=0, atol=0)
+                torch.testing.assert_close(model.act_inference(obs), torch.tensor(output), rtol=1e-6, atol=1e-7)
+            torch.testing.assert_close(model.evaluate(obs['critic']), torch.tensor(expected['critic']), rtol=1e-6, atol=1e-7)
     finally:
         torch.set_num_threads(previous_threads)
 
