@@ -1,112 +1,258 @@
-"""CPU contracts for sensor corruption, auxiliary labels and indexed impulses.
-
-Native tensor setters are recorded; this does not validate PhysX execution.
-"""
-import importlib.util
-from pathlib import Path
-from types import SimpleNamespace
+"""Actual native PIE sensors with CPU images and recorded indexed setters."""
+from types import SimpleNamespace as NS
 from unittest.mock import patch
 
 import pytest
 import torch
 
-from legged_gym.pie.config import EnvConfig
+from native_cpu_helpers import class_to_dict, load_native_classes
+from test_native_environment import state
+from legged_gym.pie.kinematics import UrdfKinematics
 
 
 @pytest.fixture
-def env():
-    tensors = [torch.zeros(3, 13), torch.zeros(3, 12, 2),
-               torch.zeros(3, 1, 13), torch.zeros(3, 1, 3)]
-    setters = []
-    gym = SimpleNamespace(
-        acquire_actor_root_state_tensor=lambda sim: tensors[0],
-        acquire_dof_state_tensor=lambda sim: tensors[1],
-        acquire_rigid_body_state_tensor=lambda sim: tensors[2],
-        acquire_net_contact_force_tensor=lambda sim: tensors[3],
-        refresh_actor_root_state_tensor=lambda sim: None,
-        refresh_dof_state_tensor=lambda sim: None,
-        refresh_rigid_body_state_tensor=lambda sim: None,
-        refresh_net_contact_force_tensor=lambda sim: None,
-        set_actor_root_state_tensor_indexed=lambda sim, root, ids, count:
-            setters.append((root.clone(), ids.clone(), count)))
-    bindings = SimpleNamespace(gymapi=SimpleNamespace(), gymtorch=SimpleNamespace(
-        wrap_tensor=lambda tensor: tensor, unwrap_tensor=lambda tensor: tensor))
-    path = Path(__file__).parents[1] / "legged_gym/pie/sensors_and_rollout.py"
-    spec = importlib.util.spec_from_file_location("legged_gym.pie._cpu_sensor_contract", path)
-    module = importlib.util.module_from_spec(spec)
-    with patch.dict("sys.modules", {"isaacgym": bindings}):
-        spec.loader.exec_module(module)
-    task = module.PIESensorsAndRollout()
-    task.num_envs, task.num_bodies, task.device = 3, 1, "cpu"
-    task.gym, task.sim, task.setters = gym, None, setters
-    task.config = EnvConfig(num_envs=3, device="cpu")
-    task.obs_scales = SimpleNamespace(dof_pos=1.0)
-    task.cfg = SimpleNamespace(
-        noise=SimpleNamespace(add_noise=True, noise_level=1.0,
-            noise_scales=SimpleNamespace(ang_vel=0.2, gravity=0.05,
-                                        dof_pos=0.01, dof_vel=1.5)),
-        normalization=SimpleNamespace(clip_observations=100.0),
-        domain_rand=SimpleNamespace(push_robots=True, push_interval=5, max_push_vel_xy=1.0),
-        rewards=SimpleNamespace(only_positive_rewards=True))
-    task._acquire_buffers()
-    task.root[:, 6] = 1
-    task.dof[:, :, 0] = task.stand
+def sensor():
+    classes = load_native_classes()
+    task = state(classes.task)
+    task.cfg = classes.config()
+    task.config = task.cfg.pie
+    task.config.randomization.enabled = False
+    task.config.camera.height = task.config.camera.width = 8
+    task.cfg.terrain.curriculum = False
+    task.sim_params = NS(dt=.005)
+    task.num_bodies = 5
+    task.body_names = ["TORSO"] + task.config.robot.foot_names
+    task.foot_indices = torch.arange(1, 5)
+    task.terrain_levels = task.terrain_types = torch.zeros(3, dtype=torch.long)
     task.joint_order = torch.arange(12)
-    task.commands_scale = torch.tensor([2.0, 2.0, 0.25])
-    task.actor_indices = torch.arange(3, dtype=torch.int32)
+    task.inverse_joint_order = task.joint_order.clone()
+    task.default_dof_pos = torch.tensor([task.config.robot.stand_angles])
+    task.dof_pos[:] = task.default_dof_pos
+    task.root_states[:, 2] = .3
+    task.base_quat = task.root_states[:, 3:7]
+    task.base_pos = task.root_states[:, :3]
+    task.last_contacts = torch.zeros(3, 4, dtype=torch.bool)
+    task.obs_scales = NS(ang_vel=.25, lin_vel=2., dof_pos=1., dof_vel=.05)
+    task.commands_scale = torch.tensor([2., 2., .25])
+    task.add_noise = False
+    task.noise_scale_vec = task._get_noise_scale_vec(task.cfg)
+    task.add_noise = False
+    rigid = torch.zeros(3, 5, 13)
+    setters = []
+    task.gym = NS(acquire_rigid_body_state_tensor=lambda sim: rigid,
+                  refresh_rigid_body_state_tensor=lambda sim: None,
+                  set_actor_root_state_tensor_indexed=lambda sim, root, ids, count:
+                    setters.append((root.clone(), ids.clone(), count)))
+    task.setters = setters
+    actions_pointer = task.actions.data_ptr()
+    task._init_pie_buffers()
+    assert task.actions.data_ptr() == actions_pointer
+    task.fk = UrdfKinematics(task.config.resolve_urdf(), task.config.robot.joint_names,
+                            task.config.robot.base_name, "cpu")
+    task.terrain_sampler = NS(sample=lambda points: torch.zeros(points.shape[:-1]))
+    image = torch.zeros(3, 8, 8)
+    def render(ids=None):
+        selected = torch.arange(3) if ids is None else ids
+        captured = (task.camera_capture_serial + 1) * 3 + selected
+        image[selected] = captured[:, None, None].float()
+        return image
+    task.camera = NS(positions=torch.zeros(3, 3), orientations=torch.zeros(3, 4),
+                     focal=torch.zeros(3), render=render, encode=lambda values: values)
+    task._reset_pie_sensors(torch.arange(3))
+    task.compute_observations()
     return task
 
 
-def test_proprio_uses_native_scaling_noise_order_and_observation_clip(env):
-    env.commands[:] = torch.tensor([1.0, 0.0, 1.0])
-    env.config.observation_noise = False
-    clean = env._proprio()
-    torch.testing.assert_close(clean[:, 6:9], torch.tensor([[2.0, 0.0, 0.25]]).expand(3, -1))
-    env.config.observation_noise = True
+def test_proprio_native_scaling_noise_and_privileged_clip_keep_raw_labels(sensor):
+    sensor.commands[:] = torch.tensor([1., 0., 1., 0.])
+    clean = sensor._proprio()
+    torch.testing.assert_close(clean[:, 6:9], torch.tensor([[2., 0., .25]]).expand(3, -1))
+    sensor.add_noise = True
     with patch("torch.rand_like", side_effect=lambda tensor: torch.ones_like(tensor)):
-        noisy = env._proprio()
-    expected = torch.tensor([0.05] * 6 + [0.0] * 3 + [0.01] * 12
-                            + [0.075] * 12 + [0.0] * 12)
-    torch.testing.assert_close(noisy - clean, expected.expand(3, -1))
-    env.dof[:, :, 1] = 4000
-    assert env._proprio()[:, 21:33].max() == 100
+        noisy = sensor._proprio()
+    torch.testing.assert_close(noisy-clean, sensor.noise_scale_vec.expand(3, -1))
+    sensor.add_noise = False
+    sensor.root_states[:, 7] = 1000
+    sensor.compute_observations()
+    obs = sensor.get_pie_observations()
+    assert obs["critic"][:, 45].max() == 100
+    assert obs["targets"]["velocity"][:, 0].min() == 1000
+    assert obs["proprio"].shape == (3, 45)
+    assert obs["proprio_history"].shape == (3, 10, 45)
+    assert obs["depth"].shape == (3, 2, 8, 8)
 
 
-def test_push_changes_only_due_actor_rows_and_keeps_other_velocity_components(env):
-    env.episode_steps[:] = torch.tensor([1, 5, 10])
-    env.root[:, 7:13] = torch.arange(18).reshape(3, 6)
-    before = env.root.clone()
-    env._apply_pushes()
-    assert len(env.setters) == 1
-    root, ids, count = env.setters[0]
-    assert ids.dtype == torch.int32 and ids.tolist() == [1, 2] and count == 2
-    torch.testing.assert_close(root[0], before[0])
-    torch.testing.assert_close(root[:, 9:13], before[:, 9:13])
-    assert (root[1:, 7:9].abs() <= 1.0).all()
-    env.config.randomization.enabled = False
-    env._apply_pushes()
-    assert len(env.setters) == 1
+def test_terminal_snapshot_precedes_reset_and_history_only_changes_selected_row(sensor):
+    sensor.root_states[:, 7] = torch.tensor([1., 7., 3.])
+    sensor._sync_base_quantities()
+    sensor._termination_reasons = {"timeout": torch.tensor([False, True, False])}
+    sensor.reset_buf[:] = torch.tensor([False, True, False])
+    sensor.time_out_buf.copy_(sensor.reset_buf)
+    sensor.common_step_counter = 1
+    sensor._before_reset()
+    terminal = sensor.extras["pie"]["terminal_critic"].clone()
+    sensor.root_states[1, 7:13] = 0
+    continuing_depth = sensor.depth_history[[0, 2]].clone()
+    sensor._reset_pie_sensors(torch.tensor([1]))
+    sensor.compute_observations()
+    assert terminal[1, 45] == 7
+    assert sensor.privileged_obs_buf[1, 45] == 0
+    assert sensor.extras["pie"]["terminal_critic"][1, 45] == 7
+    torch.testing.assert_close(sensor.depth_history[[0, 2]], continuing_depth, rtol=0, atol=0)
+    torch.testing.assert_close(sensor.proprio_history[1], sensor.obs_buf[1].expand(10, -1))
+    assert sensor._pending_reset.sum() == 0
 
 
-def test_critic_clip_does_not_change_raw_supervision_targets(env):
-    env.foot_indices = torch.zeros(4, dtype=torch.long)
-    env.levels = env.columns = torch.zeros(3, dtype=torch.long)
-    env.terrain = SimpleNamespace(sample=lambda points, levels, columns:
-                                 torch.zeros(points.shape[:-1]))
-    env.root[:, 7] = 1000
-    observations = env._observations(torch.zeros(3, 45))
-    assert observations["critic"][:, 45].max() == 100
-    assert observations["targets"]["velocity"][:, 0].min() == 1000
+def test_delayed_pd_hook_preserves_action_order_and_native_effort_bounds(sensor):
+    sensor.cfg.control.control_type = "P"
+    sensor.cfg.control.action_scale = .25
+    sensor.p_gains, sensor.d_gains = torch.full((12,), 30.), torch.full((12,), .8)
+    sensor.torque_limits = torch.full((12,), 3.)
+    sensor.dof_pos_limits = torch.tensor([[-10., 10.]]).expand(12, -1)
+    sensor.delay_steps[:] = torch.tensor([0, 1, 3])
+    actions = torch.ones(3, 12)
+    first = sensor._compute_torques(actions)
+    assert (first[0] == 3).all() and (first[1:] == 0).all()
+    second = sensor._compute_torques(actions)
+    assert (second[:2] == 3).all() and (second[2] == 0).all()
+    sensor._compute_torques(actions)
+    fourth = sensor._compute_torques(actions)
+    assert (fourth == 3).all()
+    before = sensor.action_queue[[0, 2]].clone()
+    sensor._reset_pie_sensors(torch.tensor([1]))
+    assert torch.count_nonzero(sensor.action_queue[1]) == 0
+    torch.testing.assert_close(sensor.action_queue[[0, 2]], before, rtol=0, atol=0)
 
 
-def test_native_nonnegative_total_reward_preserves_negative_term_statistics(env):
-    env.collision_indices = torch.tensor([0])
-    env.contacts[:, 0, 2] = 2.0
-    zeros = torch.zeros(3, 12)
-    reward, terms = env._reward(zeros, zeros, zeros, zeros)
-    assert (reward == 0).all()
-    assert (terms["collision"] == -10).all()
-    env.cfg.rewards.only_positive_rewards = False
-    unclipped, same_terms = env._reward(zeros, zeros, zeros, zeros)
-    torch.testing.assert_close(unclipped, torch.full((3,), -8 * env.config.policy_dt))
-    torch.testing.assert_close(same_terms["collision"], terms["collision"])
+def test_capture_ids_follow_actual_latency_queue_and_partial_reset(sensor):
+    from rsl_rl.storage.rollout_storage_pie import DepthFramePool
+    pool = DepthFramePool()
+    captured = []
+    def record():
+        expected = sensor.depth_frame_ids[:, :, None, None].expand_as(sensor.depth_history).float()
+        torch.testing.assert_close(sensor.depth_history, expected, rtol=0, atol=0)
+        captured.append((sensor.depth_history.clone(), pool.add(sensor.depth_history, sensor.depth_frame_ids)))
+    record()
+    initial_ids = sensor.depth_frame_ids.clone()
+    sensor._render_depth()
+    record()
+    torch.testing.assert_close(sensor.depth_frame_ids, initial_ids)
+    sensor._render_depth()
+    record()
+    assert (sensor.depth_frame_ids[:, -1] != initial_ids[:, -1]).all()
+    before = sensor.depth_frame_ids.clone()
+    sensor._render_depth(torch.tensor([1]), reset=True)
+    record()
+    torch.testing.assert_close(sensor.depth_frame_ids[[0, 2]], before[[0, 2]])
+    assert sensor.depth_frame_ids[1].unique().numel() == 1
+    sensor.depth_history.fill_(-999)
+    for original, indices in captured:
+        torch.testing.assert_close(pool.materialize()[indices], original, rtol=0, atol=0)
+
+
+def test_native_push_preserves_nonplanar_velocity_components(sensor):
+    sensor.cfg.domain_rand.max_push_vel_xy = 1.
+    sensor.cfg.domain_rand.push_interval = 5
+    sensor.episode_length_buf[:] = torch.tensor([1, 5, 10])
+    sensor.root_states[:, 7:13] = torch.arange(18).reshape(3, 6)
+    before = sensor.root_states.clone()
+    sensor._push_robots()
+    assert len(sensor.setters) == 1
+    pushed, indices, count = sensor.setters[0]
+    assert indices.dtype == torch.int32 and indices.tolist() == [1, 2] and count == 2
+    torch.testing.assert_close(pushed[0], before[0], rtol=0, atol=0)
+    torch.testing.assert_close(pushed[:, :7], before[:, :7], rtol=0, atol=0)
+    torch.testing.assert_close(pushed[:, 9:13], before[:, 9:13], rtol=0, atol=0)
+    assert (pushed[1:, 7:9].abs() <= 1).all()
+
+
+def test_failure_at_timeout_is_terminal_and_not_bootstrapped(sensor):
+    sensor.episode_length_buf.fill_(sensor.max_episode_length + 1)
+    sensor.contact_forces[1, 0, 2] = 2.
+    sensor.check_termination()
+    assert sensor.reset_buf.all()
+    assert sensor.time_out_buf.tolist() == [True, False, True]
+    assert sensor._termination_reasons["base_contact"].tolist() == [False, True, False]
+
+
+def test_real_task_step_runs_native_rewards_resets_and_pie_terminal_snapshot(sensor):
+    """Only Gym setters/physics advance are fake; all task methods are real."""
+    sensor.p_gains, sensor.d_gains = torch.full((12,), 30.), torch.full((12,), .8)
+    sensor.torque_limits = torch.full((12,), 30.5)
+    sensor.dof_pos_limits = torch.tensor([[-10., 10.]]).expand(12, -1)
+    sensor.command_ranges = class_to_dict(sensor.cfg.commands.ranges)
+    sensor.reward_scales = class_to_dict(sensor.cfg.rewards.scales)
+    sensor._prepare_reward_function()
+    sensor.cfg.domain_rand.push_robots = False
+    sensor.cfg.env.test = False
+    sensor.custom_origins = True
+    sensor.env_origins = torch.zeros(3, 3)
+    sensor.base_init_state = torch.tensor([0., 0., .3, 0., 0., 0., 1., 0., 0., 0., 0., 0., 0.])
+    sensor.gym.set_dof_state_tensor_indexed = lambda *args: None
+    sensor.gym.set_dof_actuation_force_tensor = lambda *args: None
+    advances = []
+    sensor.gym.simulate = lambda *args: advances.append("simulate")
+    sensor.gym.fetch_results = lambda *args: None
+    sensor.gym.refresh_dof_state_tensor = lambda *args: None
+    sensor.gym.refresh_actor_root_state_tensor = lambda *args: None
+    sensor.gym.refresh_net_contact_force_tensor = lambda *args: None
+    sensor.root_states[:, 7] = torch.tensor([1., 7., 3.])
+    sensor.contact_forces[1, 0, 2] = 2.
+    sensor.episode_length_buf.fill_(10)
+    obs, critic, reward, done, extras = sensor.step(torch.full((3, 12), .1))
+    assert len(advances) == sensor.cfg.control.decimation == 4
+    assert done.tolist() == [False, True, False]
+    assert extras["pie"]["terminal_critic"][1, 45] == 7
+    assert critic[1, 45].abs() <= .5  # Native reset velocity range, not old episode.
+    assert extras["episode"]["rew_collision"].item() == pytest.approx(-.01)
+    assert sensor.episode_length_buf.tolist() == [11, 0, 11]
+    assert sensor.episode_sums["collision"].tolist() == [0., 0., 0.]
+    assert torch.count_nonzero(sensor.actions[1]) == 0
+    assert (obs[1, -12:] == 0).all()
+    torch.testing.assert_close(sensor.proprio_history[1], obs[1].expand(10, -1))
+    assert sensor.depth_frame_ids[1].unique().numel() == 1
+
+
+def test_nonfinite_state_stops_before_warp_render(sensor):
+    rendered = []
+    sensor.common_step_counter = sensor.config.camera.update_every
+    sensor.camera.render = lambda *args: rendered.append(True)
+    sensor.root_states[1, 0] = float("nan")
+    with pytest.raises(FloatingPointError, match="Nonfinite"):
+        sensor._before_reset()
+    assert not rendered
+
+
+def test_camera_extrinsics_follow_robot_yaw_and_point_downward(sensor):
+    from legged_gym.pie.math_utils import quat_rotate
+    angle = torch.tensor(torch.pi / 4)
+    sensor.root_states[1, 3:7] = torch.tensor([0., 0., torch.sin(angle), torch.cos(angle)])
+    sensor._render_depth()
+    offsets = sensor.camera.positions - sensor.root_states[:, :3]
+    torch.testing.assert_close(offsets[0], torch.tensor([.25, 0., .06]), atol=1e-7, rtol=1e-6)
+    torch.testing.assert_close(offsets[1], torch.tensor([0., .25, .06]), atol=1e-7, rtol=1e-6)
+    forward = quat_rotate(sensor.camera.orientations, torch.tensor([[1., 0., 0.]]).expand(3, -1))
+    pitch = torch.tensor(torch.pi / 6)
+    torch.testing.assert_close(forward[0], torch.tensor([torch.cos(pitch), 0., -torch.sin(pitch)]),
+                               atol=1e-7, rtol=1e-6)
+    torch.testing.assert_close(forward[1], torch.tensor([0., torch.cos(pitch), -torch.sin(pitch)]),
+                               atol=2e-7, rtol=1e-6)
+
+
+def test_policy_joint_order_maps_actions_and_sensors_to_native_dofs(sensor):
+    sensor.joint_order = torch.arange(11, -1, -1)
+    sensor.inverse_joint_order = torch.argsort(sensor.joint_order)
+    sensor.p_gains, sensor.d_gains = torch.full((12,), 30.), torch.full((12,), .8)
+    sensor.torque_limits = torch.full((12,), 30.5)
+    sensor.dof_pos_limits = torch.tensor([[-10., 10.]]).expand(12, -1)
+    actions = torch.zeros(3, 12)
+    actions[:, 0] = 1.
+    torque = sensor._compute_torques(actions)
+    torch.testing.assert_close(torque[:, -1], torch.full((3,), 7.5))
+    assert torch.count_nonzero(torque[:, :-1]) == 0
+    sensor.dof_pos[:, -1] += .2
+    sensor.actions.copy_(actions)
+    proprio = sensor._proprio()
+    torch.testing.assert_close(proprio[:, 9], torch.full((3,), .2))
+    assert torch.count_nonzero(proprio[:, 10:21]) == 0
+    torch.testing.assert_close(proprio[:, -12:], actions)

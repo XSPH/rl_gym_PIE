@@ -1,10 +1,10 @@
 # rl_gym_PIE
 
-基于 Unitree RL Gym 的 Lite3 PIE 视觉强化学习最小复现，使用 Isaac Gym / PhysX、Warp 深度相机及随仓库提供的 rsl_rl v1.0.2 扩展。
+`refactor/pie-native-training`：在 Unitree RL Gym 原版环境主循环和 rsl_rl v1.0.2 训练循环中实现 Lite3 PIE，使用 Warp 深度相机。
 
-[PIE 使用说明](README_PIE.md) · [网络参数](PIE_NETWORK.md) · [源码审查](docs/code_review_2026-10-01.md) · [发布范围与完整性](PUBLICATION.md)
+[PIE 使用说明](README_PIE.md) · [网络参数](PIE_NETWORK.md) · [本分支改动记录](docs/native_training_refactor.md) · [发布范围与完整性](PUBLICATION.md)
 
-当前修复仅做静态检查；历史最小更新不代表完整行走或跑酷性能。以下保留宇树上游项目说明。
+本分支使用新版本模型格式，从头训练，不加载旧 PIE 模型。验证范围见改动记录；以下保留宇树上游项目说明。
 
 <div align="center">
   <h1 align="center">Unitree RL GYM</h1>

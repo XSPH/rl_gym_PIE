@@ -1,248 +1,285 @@
-"""Checkpoint scheduling and recoverable file writes, without a simulator."""
+"""New-schema checkpoint transactions and real native runner collection on CPU."""
 import json
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 import torch
 
-from rsl_rl.runners.on_policy_runner_pie import PIERunnerCfg, PIEOnPolicyRunner
+from native_rsl_helpers import TensorEnvironment, train_config
+from rsl_rl.runners.on_policy_runner_pie import PIEOnPolicyRunner
 
 
-class _Algorithm:
-    def __init__(self):
-        self.actor_critic = torch.nn.Linear(1, 1)
-        self.actor_critic.std = torch.ones(1)
-        torch.nn.init.zeros_(self.actor_critic.weight)
-        torch.nn.init.zeros_(self.actor_critic.bias)
-        self.optimizer = torch.optim.Adam(self.actor_critic.parameters(), lr=0.1)
-        self.learning_rate = 0.1
-
-    def collect(self, env, obs, hidden, reset_mask, steps):
-        batch = {"frames": [{"rewards": torch.ones(1),
-                             "terminated": torch.zeros(1, dtype=torch.bool),
-                             "truncated": torch.zeros(1, dtype=torch.bool)} for _ in range(steps)]}
-        return batch, obs, hidden, reset_mask
-
-    def update(self, batch):
-        self.optimizer.zero_grad()
-        loss = (self.actor_critic(torch.ones(1, 1)) - 1).square().mean()
-        loss.backward()
-        self.optimizer.step()
-        return {"loss": loss.item(), "value": 0.0, "policy": 0.0}
-
-    def refresh_hidden(self, batch):
-        return torch.zeros(1, 1), torch.zeros(1, dtype=torch.bool)
+@pytest.fixture(scope="module", autouse=True)
+def _single_cpu_thread():
+    previous = torch.get_num_threads()
+    torch.set_num_threads(1)
+    yield
+    torch.set_num_threads(previous)
 
 
-def _runner(output):
-    runner = PIEOnPolicyRunner.__new__(PIEOnPolicyRunner)
-    runner.pie_cfg = PIERunnerCfg(save_interval=500)
-    runner.save_interval = 500
-    runner.env = SimpleNamespace(num_envs=1)
-    runner.device = "cpu"
-    runner.alg = _Algorithm()
-    runner.log_dir = str(output)
-    runner.num_steps_per_env = 1
-    runner.current_learning_iteration = 499
-    runner.tot_timesteps = 0
-    runner.tot_time = 0
-    runner.writer = None
-    runner._observation = {}
-    runner._hidden = torch.zeros(1, 1)
-    runner._reset_mask = torch.ones(1, dtype=torch.bool)
-    runner.env.levels = torch.tensor([0, 1, 1, 2])
-    return runner
+def runner(output=None, rollout=3):
+    return PIEOnPolicyRunner(TensorEnvironment(), train_config(rollout=rollout),
+                             log_dir=None if output is None else str(output), device="cpu")
 
 
-def test_checkpoint_records_boundary_weights_and_cumulative_iteration(tmp_path):
-    runner = _runner(tmp_path)
-    runner.learn(2)
+def test_native_learning_loop_orders_act_step_process_returns_update(tmp_path, monkeypatch):
+    learner = runner(tmp_path, rollout=2)
+    events = []
+    logged_views = []
+    metrics = learner._iteration_metrics
+    def collect_metrics(view):
+        logged_views.append(set(view))
+        return metrics(view)
+    monkeypatch.setattr(learner, "_iteration_metrics", collect_metrics)
+    for obj, name in ((learner.alg, "act"), (learner.env, "step"),
+                      (learner.alg, "process_env_step"),
+                      (learner.alg, "compute_returns"), (learner.alg, "update")):
+        original = getattr(obj, name)
+        def call(*args, _original=original, _name=name, **kwargs):
+            events.append(_name)
+            return _original(*args, **kwargs)
+        monkeypatch.setattr(obj, name, call)
+    report = learner.learn(2)
+    assert events == (["act", "step", "process_env_step"] * 2
+                      + ["compute_returns", "update"]) * 2
+    assert learner.current_learning_iteration == 2
+    assert learner.tot_timesteps == 12
+    assert report["iteration"] == 2 and report["transitions"] == 6
+    assert all(not {"locs", "obs", "critic_obs"} & keys for keys in logged_views)
+    learner.writer.close()
+
+
+def test_boundary_checkpoint_matches_completed_updates_and_atomic_final(tmp_path):
+    learner = runner(tmp_path)
+    learner.current_learning_iteration = 499
+    learner.learn(2)
     boundary = torch.load(tmp_path / "model_500.pt", weights_only=True)
-    assert boundary["iter"] == boundary["iterations"] == 500
-    assert boundary["rsl_rl_base"] == "v1.0.2"
-    assert all(value["step"].item() == 1 for value in boundary["optimizer_state_dict"]["state"].values())
-    boundary_policy = torch.nn.Linear(1, 1)
-    boundary_policy.load_state_dict(boundary["model_state_dict"])
-
-    runner.learn(1)
     final = torch.load(tmp_path / "checkpoint.pt", weights_only=True)
-    assert final["iter"] == 502
-    assert all(value["step"].item() == 3 for value in final["optimizer_state_dict"]["state"].values())
-    final_policy = torch.nn.Linear(1, 1)
-    final_policy.load_state_dict(final["model_state_dict"])
-    assert not torch.equal(boundary_policy(torch.ones(1, 1)), final_policy(torch.ones(1, 1)))
-    assert torch.equal(final_policy(torch.ones(1, 1)), runner.alg.actor_critic(torch.ones(1, 1)))
+    assert boundary["pie_checkpoint_version"] == final["pie_checkpoint_version"] == 3
+    assert boundary["iter"] == 500 and final["iter"] == 501
+    assert boundary["rsl_rl_base"] == "v1.0.2"
+    assert all(value["step"].item() == 1
+               for value in boundary["optimizer_state_dict"]["state"].values())
+    assert all(value["step"].item() == 2
+               for value in final["optimizer_state_dict"]["state"].values())
+    assert any(not torch.equal(boundary["model_state_dict"][key], value)
+               for key, value in final["model_state_dict"].items())
+    for key, value in final["model_state_dict"].items():
+        torch.testing.assert_close(value, learner.alg.actor_critic.state_dict()[key], rtol=0, atol=0)
     assert sorted(path.name for path in tmp_path.glob("model_*.pt")) == ["model_500.pt"]
     assert not list(tmp_path.glob("*.tmp"))
     metrics = [json.loads(line) for line in (tmp_path / "metrics.jsonl").read_text().splitlines()]
-    assert [item["iteration"] for item in metrics] == [500, 501, 502]
-    assert all(item["terrain_level"] == 1.0 for item in metrics)
-    assert all(item["terrain_level_min"] == 0 and item["terrain_level_max"] == 2 for item in metrics)
+    assert [item["iteration"] for item in metrics] == [500, 501]
+    learner.writer.close()
 
 
 def test_failed_save_preserves_previous_checkpoint(tmp_path, monkeypatch):
-    runner = _runner(tmp_path)
-    checkpoint = tmp_path / "checkpoint.pt"
-    runner.save(checkpoint)
-    previous = checkpoint.read_bytes()
-
-    def interrupted_save(state, path):
-        Path(path).write_bytes(b"incomplete checkpoint")
+    learner = runner()
+    path = tmp_path / "checkpoint.pt"
+    learner.save(path)
+    previous = path.read_bytes()
+    def interrupted(state, file):
+        Path(file).write_bytes(b"incomplete checkpoint")
         raise OSError("interrupted write")
-
-    monkeypatch.setattr(torch, "save", interrupted_save)
+    monkeypatch.setattr(torch, "save", interrupted)
     with pytest.raises(OSError, match="interrupted write"):
-        runner.save(checkpoint)
-    assert checkpoint.read_bytes() == previous
+        learner.save(path)
+    assert path.read_bytes() == previous
     assert not (tmp_path / "checkpoint.pt.tmp").exists()
 
 
-def test_episode_statistics_cross_rollouts_and_reset_only_finished_envs(tmp_path):
-    runner = _runner(tmp_path)
-    def frame(rewards, terminated, truncated):
-        return {"rewards": torch.tensor(rewards),
-                "terminated": torch.tensor(terminated), "truncated": torch.tensor(truncated)}
-    runner._update_episode_statistics([
-        frame([1.0, 2.0], [False, True], [False, False]),
-        frame([3.0, 4.0], [False, False], [True, False]),
-    ])
-    assert list(runner._reward_buffer) == [2.0, 4.0]
-    assert list(runner._length_buffer) == [1, 2]
-    runner._update_episode_statistics([frame([5.0, 6.0], [False, True], [False, False])])
-    assert list(runner._reward_buffer) == [2.0, 4.0, 10.0]
-    assert list(runner._length_buffer) == [1, 2, 2]
-    assert runner._episode_reward_sum.tolist() == [5.0, 0.0]
-
-
-def test_reward_terms_use_native_episode_scaling_and_keep_continuing_envs(tmp_path):
-    runner = _runner(tmp_path)
-    runner.env.config = SimpleNamespace(policy_dt=0.02, episode_seconds=20.0, reward_scale_dt=True)
-    def frame(tracking, collision, terminated, truncated):
-        tracking, collision = torch.tensor(tracking), torch.tensor(collision)
-        return {"rewards": (tracking+collision)*0.02,
-                "terminated": torch.tensor(terminated), "truncated": torch.tensor(truncated),
-                "reward_terms": {"tracking_linear": tracking, "collision": collision}}
-    infos = runner._update_episode_statistics([
-        frame([10.0, 20.0], [-2.0, -4.0], [False, True], [False, False]),
-        frame([30.0, 40.0], [-6.0, -8.0], [False, False], [True, False]),
-    ])
-    assert len(infos) == 2
-    assert infos[0]["rew_tracking_lin_vel"].item() == pytest.approx(0.02)
-    assert infos[0]["rew_collision"].item() == pytest.approx(-0.004)
-    assert infos[1]["rew_tracking_lin_vel"].item() == pytest.approx(0.04)
-    assert infos[1]["rew_collision"].item() == pytest.approx(-0.008)
-    infos = runner._update_episode_statistics([
-        frame([50.0, 60.0], [-10.0, -12.0], [False, True], [False, False])])
-    assert infos[0]["rew_tracking_lin_vel"].item() == pytest.approx(0.1)
-    assert infos[0]["rew_collision"].item() == pytest.approx(-0.02)
-    assert runner._reward_term_sums["tracking_linear"].tolist() == [1.0, 0.0]
-
-
-def test_original_logger_prints_and_records_each_reward_without_double_counting(tmp_path, capsys):
-    from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
-    from torch.utils.tensorboard import SummaryWriter
-    runner = _runner(tmp_path)
-    runner.current_learning_iteration = 1
-    runner.writer = SummaryWriter(log_dir=str(tmp_path))
-    infos = runner._update_episode_statistics([{
-        "rewards": torch.ones(1), "terminated": torch.ones(1, dtype=torch.bool),
-        "truncated": torch.zeros(1, dtype=torch.bool),
-        "reward_terms": {"tracking_linear": torch.tensor([2.0]), "collision": torch.tensor([-1.0])}}])
-    metrics = {"iteration": 1, "value": 0.2, "policy": -0.1, "loss": 0.3,
-               "collection_time": 0.3, "learning_time": 0.1, "mean_reward": 1.0,
-               "velocity": 0.01, "foot_clearance": 0.02, "heightmap": 0.03,
-               "successor": 0.04, "kl": 0.05, "policy_kl": 0.007, "grad_norm": 2.0,
-               "learning_rate": 0.1, "transitions": 1,
-               "terrain_level": 1.0, "terrain_level_min": 0, "terrain_level_max": 2}
-    runner._log_pie_iteration(metrics, 15000, infos)
-    text = capsys.readouterr().out
-    assert "Learning iteration 0/15000" in text
-    assert "Mean episode rew_tracking_lin_vel:" in text
-    assert "Mean episode rew_collision:" in text
-    assert "Surrogate loss:" in text
-    for label in ("Total loss:", "Velocity estimation loss:", "Foot clearance loss:",
-                  "Height map reconstruction loss:", "Successor reconstruction loss:",
-                  "VAE KL loss:", "Policy KL divergence:", "Gradient norm before clipping:", "Learning rate:",
-                  "Mean step reward:", "Transitions this iteration:",
-                  "Mean terrain level:", "Min terrain level:", "Max terrain level:"):
-        assert label in text
-    assert text.index("Mean episode rew_collision:") < text.index("Velocity estimation loss:")
-    assert text.index("Velocity estimation loss:") < text.index("Total timesteps:")
-    assert runner.current_learning_iteration == 1
-    assert runner.tot_timesteps == 1
-    assert runner.tot_time == pytest.approx(0.4)
-    runner.writer.close()
-    events = EventAccumulator(str(tmp_path)).Reload()
-    assert events.Scalars("Episode/rew_tracking_lin_vel")[0].value == 2.0
-    assert events.Scalars("Episode/rew_collision")[0].value == -1.0
-    assert events.Scalars("Train/mean_reward")[0].value == 1.0
-    assert events.Scalars("Loss/value_function")[0].step == 0
-    assert events.Scalars("PIE/velocity_loss")[0].value == pytest.approx(0.01)
-    assert events.Scalars("PIE/vae_kl_loss")[0].value == pytest.approx(0.05)
-    assert events.Scalars("PIE/policy_kl")[0].value == pytest.approx(0.007)
-    assert events.Scalars("Episode/terrain_level")[0].value == 1.0
-    assert events.Scalars("Terrain/min_level")[0].value == 0.0
-    assert events.Scalars("Terrain/max_level")[0].value == 2.0
-
-
-def test_resume_restores_adam_lr_iteration_and_learned_std_with_fresh_episodes(tmp_path):
-    from dataclasses import replace
-    from rsl_rl.algorithms.ppo_pie import PPOConfig
-    from test_pie_ppo_schedule import _rollout, _TensorObservations
-
-    torch.set_num_threads(1)
-    algorithm, batch = _rollout(PPOConfig(epochs=1, minibatches=1))
-    inputs = _TensorObservations()
-    algorithm.update(batch)
+def test_schema3_resume_restores_adam_lr_iteration_and_learned_std(tmp_path):
+    learner = runner(tmp_path)
+    learner.learn(1)
     with torch.no_grad():
-        algorithm.model.std.fill_(0.37)
-    for group in algorithm.optimizer.param_groups:
+        learner.alg.actor_critic.std.fill_(.37)
+    learner.alg.learning_rate = 7e-4
+    for group in learner.alg.optimizer.param_groups:
         group["lr"] = 7e-4
-    runner = _runner(tmp_path)
-    runner.alg = algorithm
-    runner.pie_cfg.model = replace(algorithm.model.cfg, initial_std=0.5)
-    runner.current_learning_iteration = 500
-    runner.tot_timesteps, runner.tot_time = 987, 4.0
+    learner.current_learning_iteration = 500
+    learner.tot_timesteps, learner.tot_time = 987, 4.
     checkpoint = tmp_path / "resume.pt"
-    runner.save(checkpoint)
-
-    env = SimpleNamespace(device="cpu", num_envs=inputs.count, num_obs=3,
-                          num_privileged_obs=4, num_actions=2,
-                          config=SimpleNamespace(policy_dt=0.02, episode_seconds=20.0,
-                                                 reward_scale_dt=True),
-                          reset=inputs.observation, step=inputs.step)
-    resumed = PIEOnPolicyRunner(env, PIERunnerCfg(
-        model=replace(algorithm.model.cfg, initial_std=1.0),
-        ppo=PPOConfig(epochs=1, minibatches=1), num_steps_per_env=3),
-        log_dir=None, device="cpu")
-    resumed._episode_reward_sum = torch.ones(inputs.count)
-    resumed.load(checkpoint)
+    learner.save(checkpoint, infos={"label": "native"})
+    resumed = runner()
+    assert resumed.load(checkpoint) == {"label": "native"}
     assert resumed.current_learning_iteration == 500
-    assert resumed.tot_timesteps == 987 and resumed.tot_time == 4.0
+    assert resumed.tot_timesteps == 987 and resumed.tot_time == 4.
     assert resumed.alg.learning_rate == pytest.approx(7e-4)
     assert resumed.alg.optimizer.param_groups[0]["lr"] == pytest.approx(7e-4)
-    torch.testing.assert_close(resumed.alg.model.std, torch.full((2,), 0.37))
-    for key, value in algorithm.model.state_dict().items():
-        torch.testing.assert_close(resumed.alg.model.state_dict()[key], value)
+    torch.testing.assert_close(resumed.alg.actor_critic.std, torch.full((2,), .37))
+    for key, value in learner.alg.actor_critic.state_dict().items():
+        torch.testing.assert_close(resumed.alg.actor_critic.state_dict()[key], value, rtol=0, atol=0)
     actual = resumed.alg.optimizer.state_dict()["state"]
-    for parameter, moments in algorithm.optimizer.state_dict()["state"].items():
+    for parameter, moments in learner.alg.optimizer.state_dict()["state"].items():
         for name, value in moments.items():
-            torch.testing.assert_close(actual[parameter][name], value)
-    assert torch.count_nonzero(resumed._hidden) == 0
-    assert resumed._reset_mask.all()
-    assert not hasattr(resumed, "_episode_reward_sum")
+            torch.testing.assert_close(actual[parameter][name], value, rtol=0, atol=0)
+    hidden, _ = resumed.alg.actor_critic.get_hidden_states()
+    assert hidden is None or torch.count_nonzero(hidden) == 0
     report = resumed.learn(1)
     assert report["iteration"] == 501
-    assert resumed.tot_timesteps == 987 + inputs.count * 3
+    assert resumed.tot_timesteps == 987 + 9
+    learner.writer.close()
 
 
-def test_resume_rejects_optimizer_from_old_parameterization(tmp_path):
-    runner = _runner(tmp_path)
+def test_old_schema_is_rejected_explicitly(tmp_path):
+    learner = runner()
     checkpoint = tmp_path / "old.pt"
-    runner.save(checkpoint)
+    learner.save(checkpoint)
     saved = torch.load(checkpoint, weights_only=True)
-    saved["rsl_rl_base"] = "2.2.4"
+    saved["pie_checkpoint_version"] = 2
     torch.save(saved, checkpoint)
-    with pytest.raises(ValueError, match="requires a v1.0.2 PIE checkpoint"):
-        runner.load(checkpoint)
+    with pytest.raises(ValueError, match="(?i)(schema|version|checkpoint)"):
+        learner.load(checkpoint)
+
+
+def test_original_logs_include_native_rewards_and_pie_metrics_once(tmp_path, capsys):
+    from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
+    learner = runner(tmp_path)
+    learner.learn(1)
+    output = capsys.readouterr().out
+    for label in ("Learning iteration", "Value function loss:", "Surrogate loss:",
+                  "Mean action noise std:", "Mean episode rew_tracking_lin_vel:",
+                  "Mean episode rew_collision:", "Velocity estimation loss:",
+                  "Foot clearance loss:", "Height map reconstruction loss:",
+                  "Successor reconstruction loss:", "VAE KL loss:",
+                  "Policy KL divergence:", "Mean terrain level:", "Total timesteps:"):
+        assert output.count(label) == 1, label
+    assert output.index("Mean episode rew_collision:") < output.index("Velocity estimation loss:")
+    learner.writer.close()
+    events = EventAccumulator(str(tmp_path)).Reload()
+    assert len(events.Scalars("Episode/rew_tracking_lin_vel")) == 1
+    assert len(events.Scalars("Episode/rew_collision")) == 1
+    assert events.Scalars("Episode/rew_tracking_lin_vel")[0].value == pytest.approx(.7)
+    assert events.Scalars("Episode/rew_collision")[0].value == pytest.approx(-.2)
+    assert events.Scalars("PIE/velocity_loss")[0].value >= 0
+    assert learner.tot_timesteps == 9
+
+
+def test_stock_runner_still_trains_tensor_observations_without_pie_sensor_hooks():
+    from rsl_rl.runners.on_policy_runner import OnPolicyRunner
+    cfg = train_config(rollout=3)
+    cfg["runner"].update(policy_class_name="ActorCritic", algorithm_class_name="PPO")
+    cfg["policy"] = {"actor_hidden_dims": [8], "critic_hidden_dims": [8],
+                     "activation": "elu", "init_noise_std": 1.}
+    del cfg["algorithm"]["estimation_weight"], cfg["algorithm"]["kl_weight"]
+    env = TensorEnvironment()
+    learner = OnPolicyRunner(env, cfg, log_dir=None, device="cpu")
+    # A stock task has no multimodal API. Its native get_observations continues
+    # to work through a saved direct callable, while sensor access raises.
+    original = env.get_pie_observations
+    env.get_observations = lambda: original()["proprio"]
+    env.get_privileged_observations = lambda: original()["critic"]
+    def stock_step(actions):
+        env.step_index += 1
+        observations = original()
+        return (observations["proprio"], observations["critic"], torch.ones(env.num_envs),
+                torch.zeros(env.num_envs, dtype=torch.bool), {})
+    env.step = stock_step
+    def no_visual_api():
+        raise AssertionError("Stock runner must not request PIE side inputs")
+    env.get_pie_observations = no_visual_api
+    before = learner.alg.actor_critic.actor[0].weight.detach().clone()
+    report = learner.learn(2)
+    assert learner.current_learning_iteration == 2 and learner.tot_timesteps == 18
+    assert not torch.equal(before, learner.alg.actor_critic.actor[0].weight)
+    assert report["iteration"] == 2
+
+
+def test_real_task_registry_constructs_native_pie_runner_from_class_config():
+    from dataclasses import asdict
+    from types import SimpleNamespace
+    from native_cpu_helpers import load_native_classes
+    from native_rsl_helpers import model_config
+    classes = load_native_classes()
+    registry = classes.registry()
+    env_cfg, training = classes.config(), classes.train_config()
+    training.policy.model_config = asdict(model_config())
+    training.algorithm.num_learning_epochs = training.algorithm.num_mini_batches = 1
+    training.runner.num_steps_per_env = 3
+    registry.register("lite3_pie", classes.task, env_cfg, training)
+    copied, copied_training = registry.get_cfgs("lite3_pie")
+    copied.control.action_scale = 99
+    assert registry.get_cfgs("lite3_pie")[0].control.action_scale == .25
+    args = SimpleNamespace(seed=None, num_envs=None, max_iterations=None,
+                           resume=False, experiment_name=None, run_name=None,
+                           load_run=None, checkpoint=None, rl_device="cpu")
+    native_runner, resolved = registry.make_alg_runner(
+        TensorEnvironment(), name="lite3_pie", args=args, log_root=None)
+    assert isinstance(native_runner, PIEOnPolicyRunner)
+    assert native_runner.num_steps_per_env == 3
+    assert native_runner.alg.num_learning_epochs == native_runner.alg.num_mini_batches == 1
+    assert native_runner.learn(1)["iteration"] == 1
+
+
+def test_parsed_native_config_numpy_fields_make_weights_only_safe_checkpoint(tmp_path):
+    import numpy as np
+    from types import SimpleNamespace
+    from native_cpu_helpers import load_native_classes
+    classes = load_native_classes()
+    task = classes.task.__new__(classes.task)
+    task.cfg = classes.config()
+    task.cfg.seed = np.int64(3)
+    task.cfg.domain_rand.friction_range = np.asarray([.2, 1.2], dtype=np.float64)
+    task.cfg.pie.randomization.enabled = np.bool_(True)
+    task.sim_params = SimpleNamespace(dt=.005)
+    task._parse_cfg(task.cfg)
+    assert isinstance(task.cfg.domain_rand.push_interval, np.float64)
+    learner = runner()
+    learner.env.cfg = task.cfg
+    checkpoint = tmp_path / "parsed.pt"
+    learner.save(checkpoint)
+    saved = torch.load(checkpoint, weights_only=True)
+    values = saved["environment_cfg"]
+    assert type(values["seed"]) is int and values["seed"] == 3
+    assert type(values["domain_rand"]["push_interval"]) is float
+    assert values["domain_rand"]["push_interval"] == 750.
+    assert values["domain_rand"]["friction_range"] == [.2, 1.2]
+    assert type(values["pie"]["randomization"]["enabled"]) is bool
+
+
+def test_default_network_one_env_checkpoint_load_and_recurrent_inference(tmp_path):
+    from rsl_rl.algorithms.ppo_pie import PPOConfig
+    from rsl_rl.modules.actor_critic_pie import ModelConfig
+    class FullEnvironment(TensorEnvironment):
+        def __init__(self, count):
+            super().__init__(count=count)
+            self.num_obs, self.num_privileged_obs, self.num_actions = 45, 235, 12
+        def get_pie_observations(self):
+            prop = torch.linspace(-.1, .1, self.num_obs).repeat(self.num_envs, 1)
+            depth = torch.linspace(-.2, .2, 60*80).reshape(1, 1, 60, 80).repeat(self.num_envs, 2, 1, 1)
+            velocity = torch.zeros(self.num_envs, 3)
+            heightmap = torch.zeros(self.num_envs, 187)
+            return {"proprio": prop, "proprio_history": prop[:, None].repeat(1, 10, 1),
+                    "depth": depth, "depth_frame_ids": torch.arange(self.num_envs).repeat(2, 1).t(),
+                    "critic": torch.cat((prop, velocity, heightmap), -1),
+                    "targets": {"velocity": velocity, "foot_clearance": torch.zeros(self.num_envs, 4),
+                                "heightmap": heightmap}}
+    cfg = train_config(cfg=PPOConfig(), model=ModelConfig(), rollout=24)
+    training = PIEOnPolicyRunner(FullEnvironment(4), cfg, log_dir=None, device="cpu")
+    with torch.no_grad():
+        training.alg.model.std.fill_(.64)
+    checkpoint = tmp_path / "native_default.pt"
+    training.save(checkpoint)
+    inference = PIEOnPolicyRunner(FullEnvironment(1), cfg, log_dir=None, device="cpu")
+    inference.load(checkpoint, load_optimizer=False)
+    assert inference.alg.num_mini_batches == 4
+    torch.testing.assert_close(inference.alg.model.std, torch.full((12,), .64))
+    policy = inference.get_inference_policy()
+    first = policy(inference.env.get_observations())
+    second = policy(inference.env.get_observations())
+    fresh = policy(inference.env.get_observations(), reset_mask=torch.ones(1, dtype=torch.bool))
+    assert first.shape == second.shape == (1, 12)
+    assert torch.isfinite(first).all() and torch.isfinite(second).all()
+    assert not torch.equal(first, second)
+    torch.testing.assert_close(first, fresh, rtol=0, atol=0)
+
+
+def test_inference_env_count_does_not_silently_reduce_training_minibatches():
+    from rsl_rl.algorithms.ppo_pie import PIEPPO, PPOConfig
+    from rsl_rl.modules.actor_critic_pie import PIEActorCritic
+    from native_rsl_helpers import collect_native, model_config
+    algorithm = PIEPPO(PIEActorCritic(model_config()), device="cpu", **PPOConfig().as_native_kwargs())
+    environment = TensorEnvironment(count=1, resets={1: (0, False)})
+    collect_native(algorithm, environment, steps=2)
+    with pytest.raises(ValueError, match="num_envs >= minibatches"):
+        algorithm.update()

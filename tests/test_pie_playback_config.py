@@ -1,63 +1,109 @@
-"""Check playback restores a checkpoint's units without altering training defaults."""
-from types import SimpleNamespace as NS
-
+"""Only the native branch's schema3 configuration is accepted for playback."""
 import pytest
 
-from legged_gym.pie.config import EnvConfig
+from native_cpu_helpers import class_to_dict, load_native_classes
 from legged_gym.pie.playback import restore_playback_config
 
 
-def task_config():
-    return NS(pie=EnvConfig(), seed=1, env=NS(num_envs=4, episode_length_s=20.0),
-              normalization=NS(obs_scales=NS(lin_vel=2.0, ang_vel=0.25, dof_pos=1.0),
-                               clip_observations=100.0),
-              rewards=NS(only_positive_rewards=True),
-              domain_rand=NS(randomize_friction=True, randomize_base_mass=True,
-                             push_robots=True))
-
-
-def test_legacy_checkpoint_restores_environment_and_raw_commands():
-    training = task_config()
-    saved = EnvConfig()
-    saved.robot.action_clip = 4.0
-    saved.command_seconds = 5.0
-    saved.terrain.initial_max_level = 1
+def test_native_checkpoint_restores_training_units_and_keeps_runtime_env_count():
+    classes = load_native_classes()
+    training = classes.config()
+    training.env.num_envs = 4
+    saved = classes.config()
+    saved.control.action_scale = .3
+    saved.commands.resampling_time = 5.
+    saved.normalization.obs_scales.lin_vel = 3.
+    saved.normalization.obs_scales.ang_vel = .5
+    saved.normalization.clip_observations = 50.
+    saved.rewards.only_positive_rewards = False
+    saved.pie.camera.pitch_degrees = 28.
     cfg, source = restore_playback_config(training, {
-        "environment_config": saved.to_dict(), "rsl_rl_base": "v1.0.2",
-        "pie_checkpoint_version": 2, "ppo_config": {"epochs": 2}})
-    assert cfg.pie.robot.action_clip == 4.0
-    assert cfg.pie.command_seconds == 5.0
-    assert cfg.pie.terrain.initial_max_level == 1
-    assert (cfg.normalization.obs_scales.lin_vel, cfg.normalization.obs_scales.ang_vel) == (1.0, 1.0)
-    assert cfg.pie.num_envs == 4
-    assert not cfg.domain_rand.push_robots and not cfg.pie.randomization.enabled
-    assert not cfg.pie.terrain.curriculum and not cfg.rewards.only_positive_rewards
-    assert "legacy" in source
-    assert training.pie.robot.action_clip == 100.0
-    assert training.domain_rand.push_robots and training.pie.randomization.enabled
-
-
-def test_formal_checkpoint_preserves_native_command_units():
-    cfg, _ = restore_playback_config(task_config(), {
-        "environment_config": EnvConfig().to_dict(), "rsl_rl_base": "v1.0.2",
-        "pie_checkpoint_version": 2, "ppo_config": {"schedule": "adaptive"}})
-    assert (cfg.normalization.obs_scales.lin_vel, cfg.normalization.obs_scales.ang_vel) == (2.0, 0.25)
-    assert cfg.pie.robot.action_clip == 100.0
-    assert cfg.rewards.only_positive_rewards
-
-
-def test_new_checkpoint_observation_settings_take_precedence():
-    cfg, _ = restore_playback_config(task_config(), {
-        "environment_config": EnvConfig().to_dict(),
-        "playback_config": {"command_scales": [3.0, 3.0, 0.5],
-                            "joint_position_scale": 0.7, "clip_observations": 50.0,
-                            "only_positive_rewards": False}})
-    assert (cfg.normalization.obs_scales.lin_vel, cfg.normalization.obs_scales.ang_vel) == (3.0, 0.5)
-    assert cfg.normalization.obs_scales.dof_pos == 0.7
-    assert cfg.normalization.clip_observations == 50.0
+        "pie_checkpoint_version": 3, "environment_cfg": class_to_dict(saved)})
+    assert cfg.env.num_envs == 4
+    assert cfg.control.action_scale == .3
+    assert cfg.commands.resampling_time == 5.
+    assert cfg.normalization.obs_scales.lin_vel == 3.
+    assert cfg.normalization.obs_scales.ang_vel == .5
+    assert cfg.normalization.clip_observations == 50.
     assert not cfg.rewards.only_positive_rewards
+    assert cfg.pie.camera.pitch_degrees == 28.
+    assert "version 3" in source
+    assert training.control.action_scale == .25
+    assert training.rewards.only_positive_rewards
+    assert training.noise.add_noise and training.domain_rand.push_robots
 
 
-def test_unknown_checkpoint_does_not_silently_use_current_training_settings():
-    with pytest.raises(ValueError, match="no known observation settings"):
-        restore_playback_config(task_config(), {"environment_config": EnvConfig().to_dict()})
+def test_playback_disables_randomization_without_changing_saved_reward_scales():
+    classes = load_native_classes()
+    training = classes.config()
+    snapshot = class_to_dict(training)
+    cfg, _ = restore_playback_config(training, {
+        "pie_checkpoint_version": 3, "environment_cfg": snapshot})
+    assert not cfg.noise.add_noise
+    assert not cfg.domain_rand.randomize_friction
+    assert not cfg.domain_rand.randomize_base_mass
+    assert not cfg.domain_rand.push_robots
+    assert not cfg.terrain.curriculum
+    assert not cfg.pie.randomization.enabled
+    assert class_to_dict(cfg.rewards) == snapshot["rewards"]
+    assert class_to_dict(training) == snapshot
+
+
+@pytest.mark.parametrize("version", [None, 1, 2, 4])
+def test_old_or_unknown_checkpoint_schema_is_rejected(version):
+    classes = load_native_classes()
+    with pytest.raises(ValueError, match="version-3"):
+        restore_playback_config(classes.config(), {"pie_checkpoint_version": version})
+
+
+def test_missing_environment_config_does_not_silently_use_current_defaults():
+    classes = load_native_classes()
+    with pytest.raises(ValueError, match="environment_cfg"):
+        restore_playback_config(classes.config(), {"pie_checkpoint_version": 3})
+
+
+def test_real_native_helper_serializes_config_fields_and_roundtrips_without_methods():
+    classes = load_native_classes()
+    cfg = classes.config()
+    serialize = classes.helpers.class_to_dict
+    snapshot = serialize(cfg)
+    assert snapshot["pie"]["camera"]["history"] == 2
+    assert "validate" not in snapshot["pie"]
+    assert "policy_dt" not in snapshot["pie"]  # A derived property, not a setting.
+    assert snapshot["control"]["decimation"] == 4
+    assert snapshot["sim"]["physx"]["max_gpu_contact_pairs"] > 0
+    changed = classes.config()
+    changed.control.decimation = 99
+    changed.pie.camera.history = 99
+    classes.helpers.update_class_from_dict(changed, snapshot)
+    assert serialize(changed) == snapshot
+    restored, _ = restore_playback_config(cfg, {
+        "pie_checkpoint_version": 3, "environment_cfg": snapshot})
+    assert restored.control.decimation == 4 and restored.pie.camera.history == 2
+
+
+def test_playback_of_parsed_runtime_cfg_accepts_recomputed_push_interval_and_seed():
+    import numpy as np
+    from types import SimpleNamespace
+    classes = load_native_classes()
+    parsed = classes.task.__new__(classes.task)
+    parsed.cfg = classes.config()
+    parsed.cfg.seed = np.int64(8)
+    parsed.cfg.domain_rand.friction_range = np.asarray([.2, 1.2])
+    parsed.sim_params = SimpleNamespace(dt=.005)
+    parsed._parse_cfg(parsed.cfg)
+    snapshot = classes.helpers.class_to_dict(parsed.cfg)
+    assert type(snapshot["domain_rand"]["push_interval"]) is float
+    assert type(snapshot["seed"]) is int
+    original = classes.config()
+    original.env.num_envs = 1
+    restored, _ = restore_playback_config(original, {
+        "pie_checkpoint_version": 3, "environment_cfg": snapshot})
+    assert restored.env.num_envs == 1
+    assert not restored.domain_rand.push_robots
+    assert restored.domain_rand.friction_range == [.2, 1.2]
+    # The interval is a duration-derived field, recalculated by the real parser.
+    reparsed = classes.task.__new__(classes.task)
+    reparsed.cfg, reparsed.sim_params = restored, SimpleNamespace(dt=.01)
+    reparsed._parse_cfg(restored)
+    assert restored.domain_rand.push_interval == 375.

@@ -1,14 +1,26 @@
 import os
+import builtins
 import copy
 import torch
 import numpy as np
 import random
+from dataclasses import asdict, is_dataclass
 from isaacgym import gymapi
 from isaacgym import gymutil
 
 from legged_gym import LEGGED_GYM_ROOT_DIR, LEGGED_GYM_ENVS_DIR
 
 def class_to_dict(obj) -> dict:
+    if isinstance(obj, np.generic):
+        return class_to_dict(obj.item())
+    if isinstance(obj, np.ndarray):
+        return class_to_dict(obj.tolist())
+    if is_dataclass(obj) and not isinstance(obj, type):
+        return class_to_dict(asdict(obj))
+    if isinstance(obj, dict):
+        return {key: class_to_dict(value) for key, value in obj.items()}
+    if isinstance(obj, (tuple, list)):
+        return [class_to_dict(value) for value in obj]
     if not  hasattr(obj,"__dict__"):
         return obj
     result = {}
@@ -17,6 +29,8 @@ def class_to_dict(obj) -> dict:
             continue
         element = []
         val = getattr(obj, key)
+        if callable(val) and not isinstance(val, type):
+            continue
         if isinstance(val, list):
             for item in val:
                 element.append(class_to_dict(item))
@@ -28,10 +42,10 @@ def class_to_dict(obj) -> dict:
 def update_class_from_dict(obj, dict):
     for key, val in dict.items():
         attr = getattr(obj, key, None)
-        if isinstance(attr, type):
+        if isinstance(val, builtins.dict) and hasattr(attr, "__dict__"):
             update_class_from_dict(attr, val)
         else:
-            setattr(obj, key, val)
+            setattr(obj, key, copy.deepcopy(val))
     return
 
 def set_seed(seed):
@@ -97,6 +111,8 @@ def get_load_path(root, load_run=-1, checkpoint=-1):
 def update_cfg_from_args(env_cfg, cfg_train, args):
     # seed
     if env_cfg is not None:
+        if args.seed is not None:
+            env_cfg.seed = args.seed
         # num envs
         if args.num_envs is not None:
             env_cfg.env.num_envs = args.num_envs
@@ -108,6 +124,8 @@ def update_cfg_from_args(env_cfg, cfg_train, args):
             cfg_train.runner.max_iterations = args.max_iterations
         if getattr(args, "save_interval", None) is not None:
             cfg_train.runner.save_interval = args.save_interval
+        if getattr(args, "rollout_steps", None) is not None:
+            cfg_train.runner.num_steps_per_env = args.rollout_steps
         if args.resume:
             cfg_train.runner.resume = args.resume
         if args.experiment_name is not None:
@@ -140,7 +158,7 @@ def get_args():
         {"name": "--rollout_steps", "type": int, "help": "PIE control steps per PPO rollout"},
         {"name": "--output_dir", "type": str, "help": "PIE checkpoint and metrics directory"},
         {"name": "--checkpoint_file", "type": str, "help": "PIE checkpoint for bounded play"},
-        {"name": "--steps", "type": int, "default": 4, "help": "PIE bounded playback steps"},
+        {"name": "--steps", "type": int, "default": 2000, "help": "PIE bounded playback control steps (default: 40 seconds)"},
     ]
     # parse arguments
     args = gymutil.parse_arguments(

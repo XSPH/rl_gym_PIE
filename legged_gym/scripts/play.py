@@ -1,7 +1,4 @@
-import sys
-from legged_gym import LEGGED_GYM_ROOT_DIR
 import os
-import sys
 from legged_gym import LEGGED_GYM_ROOT_DIR
 
 import isaacgym
@@ -16,20 +13,47 @@ def play(args):
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
     if args.task == "lite3_pie":
         import json
-        from rsl_rl.runners.on_policy_runner_pie import evaluate
         from legged_gym.pie.playback import restore_playback_config
+        from legged_gym.utils.helpers import update_class_from_dict
         if args.checkpoint_file is None:
             raise ValueError("PIE play requires --checkpoint_file")
         checkpoint = torch.load(args.checkpoint_file, map_location="cpu", weights_only=True)
+        env_cfg.env.num_envs = args.num_envs if args.num_envs is not None else 1
         env_cfg, source = restore_playback_config(env_cfg, checkpoint)
-        scales = env_cfg.normalization.obs_scales
-        print("[PIE playback] {}: action_clip={}, command_scales=({}, {}, {}), initial_max_level={}".format(
-            source, env_cfg.pie.robot.action_clip, scales.lin_vel, scales.lin_vel,
-            scales.ang_vel, env_cfg.pie.terrain.initial_max_level), flush=True)
+        update_class_from_dict(train_cfg, checkpoint["train_config"])
+        train_cfg.runner.resume = False
+        print("[PIE playback] {}: envs={}, steps={}".format(
+            source, env_cfg.env.num_envs, args.steps), flush=True)
         del checkpoint
+        if args.steps < 1:
+            raise ValueError("--steps must be positive")
         env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
         try:
-            print(json.dumps(evaluate(env, args.checkpoint_file, steps=args.steps), indent=2))
+            runner, _ = task_registry.make_alg_runner(
+                env=env, name=args.task, args=args, train_cfg=train_cfg, log_root=None)
+            runner.load(args.checkpoint_file, load_optimizer=False)
+            policy = runner.get_inference_policy(device=env.device)
+            obs = env.get_observations()
+            episode_count = 0
+            reset_messages = 0
+            with torch.no_grad():
+                for step in range(args.steps):
+                    actions = policy(obs)
+                    obs, _, rewards, dones, infos = env.step(actions)
+                    runner.alg.actor_critic.reset(dones)
+                    if not torch.isfinite(rewards).all():
+                        raise FloatingPointError("Non-finite playback reward")
+                    episode_count += int(dones.sum().item())
+                    if dones.any() and reset_messages < 5:
+                        reasons = infos.get("pie", {}).get("termination_reasons", {})
+                        counts = {name: int(value[dones.bool()].sum().item())
+                                  for name, value in reasons.items()}
+                        print("[PIE reset] step={} count={} reasons={}".format(
+                            step + 1, int(dones.sum().item()), counts), flush=True)
+                        reset_messages += 1
+            print(json.dumps({"steps": args.steps, "environments": env.num_envs,
+                              "completed_episodes": episode_count,
+                              "checkpoint": args.checkpoint_file}, indent=2))
         finally:
             env.close()
         return

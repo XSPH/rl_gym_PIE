@@ -4,8 +4,10 @@ from typing import Tuple
 import torch
 import numpy as np
 import sys
+from copy import deepcopy
 
 from rsl_rl.env import VecEnv
+from rsl_rl import runners
 from rsl_rl.runners import OnPolicyRunner
 
 from legged_gym import LEGGED_GYM_ROOT_DIR, LEGGED_GYM_ENVS_DIR
@@ -27,8 +29,8 @@ class TaskRegistry():
         return self.task_classes[name]
     
     def get_cfgs(self, name) -> Tuple[LeggedRobotCfg, LeggedRobotCfgPPO]:
-        train_cfg = self.train_cfgs[name]
-        env_cfg = self.env_cfgs[name]
+        train_cfg = deepcopy(self.train_cfgs[name])
+        env_cfg = deepcopy(self.env_cfgs[name])
         # copy seed
         env_cfg.seed = train_cfg.seed
         return env_cfg, train_cfg
@@ -115,24 +117,20 @@ class TaskRegistry():
             log_dir = os.path.join(log_root, datetime.now().strftime('%b%d_%H-%M-%S') + '_' + train_cfg.runner.run_name)
         
         train_cfg_dict = class_to_dict(train_cfg)
-        if train_cfg.runner_class_name == "PIEOnPolicyRunner":
-            from rsl_rl.runners import PIEOnPolicyRunner, PIERunnerCfg
-            train_cfg.sync_pie_config()
-            rollout_steps = getattr(args, "rollout_steps", None)
-            pie_cfg = PIERunnerCfg(seed=train_cfg.seed,
-                max_iterations=train_cfg.runner.max_iterations,
-                save_interval=train_cfg.runner.save_interval,
-                num_steps_per_env=train_cfg.runner.num_steps_per_env if rollout_steps is None else rollout_steps,
-                model=train_cfg.pie_model, ppo=train_cfg.pie_ppo)
-            log_dir = getattr(args, "output_dir", None) or log_dir
-            runner = PIEOnPolicyRunner(env, pie_cfg, log_dir, device=args.rl_device)
-        else:
-            runner = OnPolicyRunner(env, train_cfg_dict, log_dir, device=args.rl_device)
+        runner_name = getattr(train_cfg, "runner_class_name", "OnPolicyRunner")
+        runner_class = getattr(runners, runner_name, None)
+        if runner_class is None or not issubclass(runner_class, OnPolicyRunner):
+            raise ValueError("Unknown on-policy runner: " + runner_name)
+        log_dir = getattr(args, "output_dir", None) or log_dir
+        runner = runner_class(env, train_cfg_dict, log_dir, device=args.rl_device)
         #save resume path before creating a new log_dir
         resume = train_cfg.runner.resume
         if resume:
             # load previously trained model
-            resume_path = get_load_path(log_root, load_run=train_cfg.runner.load_run, checkpoint=train_cfg.runner.checkpoint)
+            resume_path = (getattr(args, "checkpoint_file", None)
+                           or train_cfg.runner.resume_path
+                           or get_load_path(log_root, load_run=train_cfg.runner.load_run,
+                                            checkpoint=train_cfg.runner.checkpoint))
             print(f"Loading model from: {resume_path}")
             runner.load(resume_path)
         return runner, train_cfg

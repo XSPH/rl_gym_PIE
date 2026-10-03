@@ -1,50 +1,47 @@
-"""Restore the policy's environment before creating a playback simulator."""
+"""Restore only the native-training branch's checkpoint configuration."""
 from copy import deepcopy
+from pathlib import Path
 
-from .config import config_from_dict
+
+def _restore_fields(destination, values, path=""):
+    for name, value in values.items():
+        field = path + name
+        # LeggedRobot._parse_cfg derives this after restoring push_interval_s.
+        if field == "domain_rand.push_interval":
+            continue
+        if name.startswith("_") or not hasattr(destination, name):
+            raise ValueError("Unknown checkpoint configuration field: " + name)
+        current = getattr(destination, name)
+        if isinstance(value, dict) and hasattr(current, "__dict__"):
+            _restore_fields(current, value, field + ".")
+        else:
+            setattr(destination, name, deepcopy(value))
 
 
 def restore_playback_config(env_cfg, checkpoint):
+    if checkpoint.get("pie_checkpoint_version") != 3:
+        raise ValueError("This branch requires a native PIE version-3 checkpoint; "
+                         "old PIE models are not supported")
+    environment = checkpoint.get("environment_cfg")
+    if not isinstance(environment, dict):
+        raise ValueError("Native PIE checkpoint is missing environment_cfg")
     cfg = deepcopy(env_cfg)
-    environment = checkpoint.get("environment_config")
-    if not environment:
-        raise ValueError("PIE playback requires the checkpoint's environment_config")
-    cfg.pie = config_from_dict(environment)
-    # Runtime environment count/device/headless are selected by the play CLI.
-    cfg.pie.num_envs = cfg.env.num_envs
-    cfg.env.episode_length_s = cfg.pie.episode_seconds
-    cfg.seed = cfg.pie.seed
-
-    observation = checkpoint.get("playback_config")
-    if observation:
-        scales = observation["command_scales"]
-        if len(scales) != 3 or scales[0] != scales[1]:
-            raise ValueError("Expected equal x/y command scales and one yaw scale")
-        cfg.normalization.obs_scales.lin_vel = scales[0]
-        cfg.normalization.obs_scales.ang_vel = scales[2]
-        cfg.normalization.obs_scales.dof_pos = observation["joint_position_scale"]
-        cfg.normalization.clip_observations = observation["clip_observations"]
-        cfg.rewards.only_positive_rewards = observation["only_positive_rewards"]
-        source = "checkpoint environment and observation settings"
-    elif (checkpoint.get("rsl_rl_base") == "v1.0.2"
-          and checkpoint.get("pie_checkpoint_version") == 2
-          and "ppo_config" in checkpoint):
-        # The earlier v1.0.2 PIE runner predates native command scaling and
-        # positive reward clipping. Its PPOConfig has no schedule field.
-        legacy = "schedule" not in checkpoint["ppo_config"]
-        cfg.normalization.obs_scales.lin_vel = 1.0 if legacy else 2.0
-        cfg.normalization.obs_scales.ang_vel = 1.0 if legacy else 0.25
-        cfg.normalization.obs_scales.dof_pos = 1.0
-        cfg.normalization.clip_observations = 100.0
-        cfg.rewards.only_positive_rewards = not legacy
-        source = "legacy v1.0.2 PIE settings" if legacy else "v1.0.2 formal PIE settings"
-    else:
-        raise ValueError("Checkpoint has no known observation settings; refusing incompatible playback")
-
-    cfg.pie.randomization.enabled = False
-    cfg.pie.observation_noise = False
-    cfg.pie.terrain.curriculum = False
+    runtime_count = cfg.env.num_envs
+    # TaskRegistry normally supplies this; accept the saved seed when this
+    # helper is called with an otherwise fresh task configuration as well.
+    if "seed" in environment and not hasattr(cfg, "seed"):
+        cfg.seed = environment["seed"]
+    _restore_fields(cfg, environment)
+    cfg.env.num_envs = runtime_count
+    # A moved checkout uses its own bundled asset. Explicit robot URDFs are
+    # still validated by the environment constructor.
+    if not Path(cfg.asset.file).is_file():
+        cfg.asset.file = env_cfg.asset.file
+    cfg.noise.add_noise = False
     cfg.domain_rand.randomize_friction = False
     cfg.domain_rand.randomize_base_mass = False
     cfg.domain_rand.push_robots = False
-    return cfg, source
+    cfg.terrain.curriculum = False
+    cfg.pie.randomization.enabled = False
+    cfg.pie.observation_noise = False
+    return cfg, "native PIE checkpoint configuration (version 3)"

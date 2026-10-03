@@ -1,4 +1,4 @@
-name: pie-isaacgym
+name: pie-isaacgym-native
 channels:
   - pytorch
   - nvidia
@@ -14,7 +14,7 @@ dependencies:
       - pytest>=7,<9
 # Isaac Gym Preview 4 is separately installed from NVIDIA's archive into THIS env.
 # Install the modified project-local rsl_rl v1.0.2 after creating this env:
-# cd unitree_rl_gym
+# cd rl_gym_PIE_native
 # python -s -m pip install --no-deps --no-build-isolation -e ./rsl_rl
 # python -s -m pip install --no-deps --no-build-isolation -e .
 variables:

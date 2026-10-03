@@ -6,6 +6,7 @@ from isaacgym import gymapi  # Native bindings must precede torch.
 
 import json
 import math
+from types import SimpleNamespace
 
 import numpy as np
 import torch
@@ -13,7 +14,6 @@ import torch
 from legged_gym.envs.pie.lite3 import Lite3PIE
 from legged_gym.envs.pie.lite3_config import Lite3PIECfg
 from legged_gym.pie.config import CameraConfig
-from legged_gym.pie.terrain import TerrainAtlas
 from legged_gym.pie.warp_camera import WarpDepthCamera
 
 
@@ -21,8 +21,8 @@ def main():
     if not torch.cuda.is_available():
         raise RuntimeError("GPU checks require CUDA; no checks were run")
     vertices = np.array([[-20, -20, 0], [20, -20, 0], [20, 20, 0], [-20, 20, 0]], dtype=np.float32)
-    atlas = TerrainAtlas(vertices, np.array([[0, 1, 2], [0, 2, 3]], dtype=np.uint32),
-                         None, None, None, [], None)
+    atlas = SimpleNamespace(vertices=vertices,
+                            triangles=np.array([[0, 1, 2], [0, 2, 3]], dtype=np.uint32))
     camera = WarpDepthCamera(atlas, 2, CameraConfig(height=21, width=31, far=4.0, normalize=False), "cuda:0")
     camera.positions[:, 2] = 1.0
     camera.orientations[:, 1] = math.sin(math.pi / 12)
@@ -36,23 +36,30 @@ def main():
     cfg.env.num_envs = 2
     cfg.env.episode_length_s = 0.04
     cfg.pie.terrain.kinds = ["flat"]
-    cfg.pie.terrain.levels = cfg.pie.terrain.variants = 1
+    cfg.terrain.num_rows = cfg.terrain.num_cols = 1
+    cfg.terrain.max_init_terrain_level = 0
+    cfg.terrain.terrain_proportions = [1.0]
+    cfg.terrain.curriculum = False
     cfg.pie.randomization.enabled = False
     cfg.pie.observation_noise = False
     cfg.domain_rand.randomize_friction = cfg.domain_rand.randomize_base_mass = False
+    cfg.domain_rand.push_robots = False
     sim = gymapi.SimParams()
-    sim.dt = cfg.pie.physics_dt
+    sim.dt = cfg.sim.dt
+    sim.use_gpu_pipeline = True
+    sim.physx.use_gpu = True
     env = Lite3PIE(cfg, sim, gymapi.SIM_PHYSX, "cuda:0", True)
     try:
-        obs = env.reset()
+        env.reset()
+        obs = env.get_pie_observations()
         assert tuple(obs["critic"].shape) == (2, 235)
         assert tuple(obs["depth"].shape) == (2, 2, 60, 80)
         actions = torch.full((2, 12), 0.1, device=env.device)
         env.step(actions)
-        obs, rewards, terminated, truncated, info = env.step(actions)
-        assert truncated.all() and not terminated.any()
-        assert torch.allclose(info["terminal_proprio"][:, -12:], actions)
-        assert torch.equal(info["terminal_proprio"], info["terminal_observation"]["proprio"])
+        _, _, rewards, dones, info = env.step(actions)
+        assert dones.all() and info["time_outs"].all()
+        assert torch.allclose(info["pie"]["terminal_proprio"][:, -12:], actions)
+        obs = env.get_pie_observations()
         assert torch.equal(obs["proprio"][:, -12:], torch.zeros_like(actions))
         assert torch.equal(obs["proprio_history"][:, 0], obs["proprio_history"][:, -1])
         assert torch.isfinite(rewards).all()
