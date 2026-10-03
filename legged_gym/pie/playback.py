@@ -42,6 +42,5 @@ def restore_playback_config(env_cfg, checkpoint):
     cfg.domain_rand.randomize_base_mass = False
     cfg.domain_rand.push_robots = False
     cfg.terrain.curriculum = False
-    cfg.pie.randomization.enabled = False
-    cfg.pie.observation_noise = False
+    cfg.domain_rand.randomize_pie = False
     return cfg, "native PIE checkpoint configuration (version 3)"

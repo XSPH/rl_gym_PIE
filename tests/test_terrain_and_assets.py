@@ -3,7 +3,7 @@ import xml.etree.ElementTree as ET
 import numpy as np
 import torch
 
-from legged_gym.pie.config import EnvConfig
+from pathlib import Path
 from legged_gym.pie.kinematics import UrdfKinematics
 from native_cpu_helpers import load_native_classes
 from test_native_environment import state
@@ -12,7 +12,7 @@ from test_native_environment import state
 def test_native_grid_plateau_collision_vertices_and_labels_agree():
     classes = load_native_classes()
     cfg = classes.config()
-    terrain = classes.terrain(cfg.terrain, 4096, cfg.pie.terrain, seed=4)
+    terrain = classes.terrain(cfg.terrain, 4096, seed=4)
     atlas = terrain.atlas
     assert atlas.triangles.max() < len(atlas.vertices)
     sampler = classes.sampler(atlas, "cpu")
@@ -42,7 +42,7 @@ def test_native_grid_plateau_collision_vertices_and_labels_agree():
 def test_mesh_faces_cover_surface_and_only_exposed_cliffs_with_outward_normals():
     classes = load_native_classes()
     cfg = classes.config()
-    terrain = classes.terrain(cfg.terrain, 4096, cfg.pie.terrain, seed=4)
+    terrain = classes.terrain(cfg.terrain, 4096, seed=4)
     vertices, triangles, heights = terrain.vertices, terrain.triangles, terrain.height_field_raw
     normals = np.cross(vertices[triangles[:, 1]] - vertices[triangles[:, 0]],
                        vertices[triangles[:, 2]] - vertices[triangles[:, 0]])
@@ -121,18 +121,18 @@ def test_native_root_reset_adds_base_height_exactly_once():
 
 
 def test_asset_complete_joint_order_and_stand_pose():
-    cfg = EnvConfig()
-    path = cfg.resolve_urdf()
+    cfg = load_native_classes().config()
+    path = Path(cfg.asset.file.format(LEGGED_GYM_ROOT_DIR=str(Path(__file__).resolve().parents[1])))
     root = ET.parse(str(path)).getroot()
     movable = [j.attrib["name"] for j in root.findall("joint") if j.attrib["type"] != "fixed"]
-    assert movable == cfg.robot.joint_names
+    assert movable == cfg.asset.joint_names
     for mesh in root.findall(".//mesh"):
         assert (path.parent / mesh.attrib["filename"]).resolve().is_file()
-    fk = UrdfKinematics(path, cfg.robot.joint_names, cfg.robot.base_name, "cpu")
-    states = fk.forward(torch.tensor([[0.0, 0.0, cfg.robot.base_height]]),
+    fk = UrdfKinematics(path, cfg.asset.joint_names, cfg.asset.base_name, "cpu")
+    states = fk.forward(torch.tensor([[0.0, 0.0, cfg.init_state.pos[2]]]),
                         torch.tensor([[0.0, 0.0, 0.0, 1.0]]),
-                        torch.tensor([cfg.robot.stand_angles]))
-    feet = torch.cat([states[name][0] for name in cfg.robot.foot_names])
+                        torch.tensor([[cfg.init_state.default_joint_angles[name] for name in cfg.asset.joint_names]]))
+    feet = torch.cat([states[name][0] for name in cfg.asset.foot_names])
     assert torch.all(feet[:, 2] > 0.0)
     assert torch.all(feet[:, 2] < 0.1)
     assert torch.all(feet[:2, 0] > feet[2:, 0])

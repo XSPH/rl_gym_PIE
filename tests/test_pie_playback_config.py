@@ -16,7 +16,7 @@ def test_native_checkpoint_restores_training_units_and_keeps_runtime_env_count()
     saved.normalization.obs_scales.ang_vel = .5
     saved.normalization.clip_observations = 50.
     saved.rewards.only_positive_rewards = False
-    saved.pie.camera.pitch_degrees = 28.
+    saved.camera.pitch_degrees = 28.
     cfg, source = restore_playback_config(training, {
         "pie_checkpoint_version": 3, "environment_cfg": class_to_dict(saved)})
     assert cfg.env.num_envs == 4
@@ -26,7 +26,7 @@ def test_native_checkpoint_restores_training_units_and_keeps_runtime_env_count()
     assert cfg.normalization.obs_scales.ang_vel == .5
     assert cfg.normalization.clip_observations == 50.
     assert not cfg.rewards.only_positive_rewards
-    assert cfg.pie.camera.pitch_degrees == 28.
+    assert cfg.camera.pitch_degrees == 28.
     assert "version 3" in source
     assert training.control.action_scale == .25
     assert training.rewards.only_positive_rewards
@@ -44,7 +44,7 @@ def test_playback_disables_randomization_without_changing_saved_reward_scales():
     assert not cfg.domain_rand.randomize_base_mass
     assert not cfg.domain_rand.push_robots
     assert not cfg.terrain.curriculum
-    assert not cfg.pie.randomization.enabled
+    assert not cfg.domain_rand.randomize_pie
     assert class_to_dict(cfg.rewards) == snapshot["rewards"]
     assert class_to_dict(training) == snapshot
 
@@ -67,19 +67,19 @@ def test_real_native_helper_serializes_config_fields_and_roundtrips_without_meth
     cfg = classes.config()
     serialize = classes.helpers.class_to_dict
     snapshot = serialize(cfg)
-    assert snapshot["pie"]["camera"]["history"] == 2
-    assert "validate" not in snapshot["pie"]
-    assert "policy_dt" not in snapshot["pie"]  # A derived property, not a setting.
+    assert snapshot["camera"]["history"] == 2
+    assert "pie" not in snapshot
+    assert "validate" not in snapshot
     assert snapshot["control"]["decimation"] == 4
     assert snapshot["sim"]["physx"]["max_gpu_contact_pairs"] > 0
     changed = classes.config()
     changed.control.decimation = 99
-    changed.pie.camera.history = 99
+    changed.camera.history = 99
     classes.helpers.update_class_from_dict(changed, snapshot)
     assert serialize(changed) == snapshot
     restored, _ = restore_playback_config(cfg, {
         "pie_checkpoint_version": 3, "environment_cfg": snapshot})
-    assert restored.control.decimation == 4 and restored.pie.camera.history == 2
+    assert restored.control.decimation == 4 and restored.camera.history == 2
 
 
 def test_playback_of_parsed_runtime_cfg_accepts_recomputed_push_interval_and_seed():

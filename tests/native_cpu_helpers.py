@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 import numpy as np
 import torch
+import rsl_rl.runners  # Initialize TensorBoard before the temporary module cache patch.
 
 
 ROOT = Path(__file__).parents[1]

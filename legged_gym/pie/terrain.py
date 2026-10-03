@@ -37,8 +37,7 @@ def _quad(vertices, triangles, points, reverse=False):
 
 class PIETerrain(Terrain):
     """Original 8 m grid and central origins with five PIE terrain families."""
-    def __init__(self, cfg, num_robots, pie_cfg, seed=1):
-        self.pie_cfg = pie_cfg
+    def __init__(self, cfg, num_robots, seed=1):
         self.rng = np.random.default_rng(seed)
         # Reuse native generation and add_terrain_to_map without first allocating
         # its dense sloped mesh; our vertical-face mesh is built below.
@@ -58,13 +57,13 @@ class PIETerrain(Terrain):
                                   cfg.horizontal_scale, cfg.vertical_scale)
 
     def _kind_for_choice(self, choice):
-        if len(self.pie_cfg.kinds) == 1:
-            return self.pie_cfg.kinds[0]
+        if len(self.cfg.kinds) == 1:
+            return self.cfg.kinds[0]
         weights = np.asarray(self.cfg.terrain_proportions, dtype=float)
-        if len(weights) != len(self.pie_cfg.kinds) or np.any(weights < 0) or weights.sum() <= 0:
+        if len(weights) != len(self.cfg.kinds) or np.any(weights < 0) or weights.sum() <= 0:
             raise ValueError("terrain_proportions must match PIE kinds and have positive total weight.")
         index = np.searchsorted(np.cumsum(weights / weights.sum()), choice, side='right')
-        return self.pie_cfg.kinds[min(index, len(self.pie_cfg.kinds) - 1)]
+        return self.cfg.kinds[min(index, len(self.cfg.kinds) - 1)]
 
     def curiculum(self):
         for column in range(self.cfg.num_cols):
@@ -91,18 +90,18 @@ class PIETerrain(Terrain):
         def fill(a, b, z):
             surface[(radius >= a) & (radius < b)] = z
         if kind == "gap":
-            width = max(cfg.horizontal_scale, self.pie_cfg.max_gap * difficulty
+            width = max(cfg.horizontal_scale, self.cfg.max_gap * difficulty
                         * self.rng.uniform(0.85, 1.0))
             fill(2.4 - width / 2, 2.4 + width / 2, -self.rng.uniform(0.4, 1.5))
         elif kind == "step":
-            h = self.pie_cfg.max_step * difficulty * self.rng.uniform(0.85, 1.0)
+            h = self.cfg.max_step * difficulty * self.rng.uniform(0.85, 1.0)
             fill(1.8, min(center_x, center_y) - 0.2, h)
         elif kind == "hurdle":
-            h = self.pie_cfg.max_hurdle * difficulty * self.rng.uniform(0.85, 1.0)
+            h = self.cfg.max_hurdle * difficulty * self.rng.uniform(0.85, 1.0)
             half = self.rng.uniform(0.10, 0.25)
             fill(2.4 - half, 2.4 + half, h)
         elif kind == "stairs":
-            h = self.pie_cfg.max_stair * difficulty * self.rng.uniform(0.85, 1.0)
+            h = self.cfg.max_stair * difficulty * self.rng.uniform(0.85, 1.0)
             for stair in range(5):
                 fill(1.8 + stair * 0.35, 1.8 + (stair + 1) * 0.35, (stair + 1) * h)
         # +/-1m native root randomization plus feet fit on this 3.2m platform.

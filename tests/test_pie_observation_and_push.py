@@ -1,5 +1,6 @@
 """Actual native PIE sensors with CPU images and recorded indexed setters."""
 from types import SimpleNamespace as NS
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -15,18 +16,17 @@ def sensor():
     classes = load_native_classes()
     task = state(classes.task)
     task.cfg = classes.config()
-    task.config = task.cfg.pie
-    task.config.randomization.enabled = False
-    task.config.camera.height = task.config.camera.width = 8
+    task.cfg.domain_rand.randomize_pie = False
+    task.cfg.camera.height = task.cfg.camera.width = 8
     task.cfg.terrain.curriculum = False
     task.sim_params = NS(dt=.005)
     task.num_bodies = 5
-    task.body_names = ["TORSO"] + task.config.robot.foot_names
+    task.body_names = ["TORSO"] + task.cfg.asset.foot_names
     task.foot_indices = torch.arange(1, 5)
     task.terrain_levels = task.terrain_types = torch.zeros(3, dtype=torch.long)
     task.joint_order = torch.arange(12)
     task.inverse_joint_order = task.joint_order.clone()
-    task.default_dof_pos = torch.tensor([task.config.robot.stand_angles])
+    task.default_dof_pos = torch.tensor([[task.cfg.init_state.default_joint_angles[name] for name in task.cfg.asset.joint_names]])
     task.dof_pos[:] = task.default_dof_pos
     task.root_states[:, 2] = .3
     task.base_quat = task.root_states[:, 3:7]
@@ -47,8 +47,9 @@ def sensor():
     actions_pointer = task.actions.data_ptr()
     task._init_pie_buffers()
     assert task.actions.data_ptr() == actions_pointer
-    task.fk = UrdfKinematics(task.config.resolve_urdf(), task.config.robot.joint_names,
-                            task.config.robot.base_name, "cpu")
+    urdf = task.cfg.asset.file.format(LEGGED_GYM_ROOT_DIR=str(Path(__file__).resolve().parents[1]))
+    task.fk = UrdfKinematics(urdf, task.cfg.asset.joint_names,
+                            task.cfg.asset.base_name, "cpu")
     task.terrain_sampler = NS(sample=lambda points: torch.zeros(points.shape[:-1]))
     image = torch.zeros(3, 8, 8)
     def render(ids=None):
@@ -215,7 +216,7 @@ def test_real_task_step_runs_native_rewards_resets_and_pie_terminal_snapshot(sen
 
 def test_nonfinite_state_stops_before_warp_render(sensor):
     rendered = []
-    sensor.common_step_counter = sensor.config.camera.update_every
+    sensor.common_step_counter = sensor.cfg.camera.update_every
     sensor.camera.render = lambda *args: rendered.append(True)
     sensor.root_states[1, 0] = float("nan")
     with pytest.raises(FloatingPointError, match="Nonfinite"):

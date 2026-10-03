@@ -1,64 +1,126 @@
-"""Lite3 task additions; original config fields own training and rewards."""
+"""Lite3 PIE settings in the original nested task configuration."""
 from dataclasses import asdict
 
 from legged_gym.envs.base.legged_robot_config import LeggedRobotCfg, LeggedRobotCfgPPO
-from legged_gym.pie.config import EnvConfig
 
 
 class Lite3PIECfg(LeggedRobotCfg):
-    def __init__(self):
-        super().__init__()
-        self.pie = EnvConfig()
-        self.env.num_envs = 4096
-        self.env.num_observations = 45
-        self.env.num_privileged_obs = 235
-        self.env.num_actions = 12
-        self.init_state.pos = [0.0, 0.0, self.pie.robot.base_height]
-        self.init_state.default_joint_angles = dict(zip(self.pie.robot.joint_names, self.pie.robot.stand_angles))
-        self.asset.file = str(self.pie.resolve_urdf())
-        self.asset.name = 'lite3'
-        self.asset.foot_name = 'FOOT'
-        self.asset.collapse_fixed_joints = False
-        self.asset.self_collisions = 1
-        self.asset.flip_visual_attachments = False
-        self.asset.penalize_contacts_on = ['TORSO', 'HIP', 'THIGH', 'SHANK']
-        self.asset.terminate_after_contacts_on = ['TORSO']
-        self.asset.default_dof_drive_mode = 3
-        self.control.stiffness = {'joint': self.pie.robot.kp}
-        self.control.damping = {'joint': self.pie.robot.kd}
-        self.control.action_scale = self.pie.robot.action_scale
-        self.control.decimation = 4
-        self.control.control_type = 'P'
-        self.domain_rand.randomize_friction = True
-        self.domain_rand.friction_range = [0.2, 1.2]
-        self.domain_rand.randomize_base_mass = True
-        self.domain_rand.added_mass_range = [-1.0, 2.0]
-        self.commands.heading_command = False
-        self.commands.curriculum = False
-        self.commands.num_commands = 3
-        self.commands.resampling_time = 10.0
-        self.commands.ranges.lin_vel_x = [0.0, 1.5]
-        self.commands.ranges.lin_vel_y = [0.0, 0.0]
-        self.commands.ranges.ang_vel_yaw = [-1.2, 1.2]
-        self.terrain.mesh_type = 'trimesh'
-        self.terrain.curriculum = True
-        self.terrain.num_rows = 10
-        self.terrain.num_cols = 20
-        self.terrain.terrain_length = 8.0
-        self.terrain.terrain_width = 8.0
-        self.terrain.terrain_proportions = [0.2] * 5
-        self.terrain.max_init_terrain_level = 5
-        self.rewards.soft_dof_pos_limit = 1.0
-        # Original reward registration and dt scaling remain the only pipeline.
-        scales = {'tracking_lin_vel': 1.5, 'tracking_ang_vel': 0.5,
-                  'lin_vel_z': -1.0, 'ang_vel_xy': -0.05, 'orientation': -1.0,
-                  'dof_acc': -2.5e-7, 'joint_power': -2e-5, 'collision': -10.0,
-                  'action_rate': -0.01, 'smoothness': -0.01}
-        for name in dir(self.rewards.scales):
-            if not name.startswith('_'):
-                setattr(self.rewards.scales, name, 0.0)
-        for name, value in scales.items():
-            setattr(self.rewards.scales, name, value)
+    seed = 1
+
+    class env(LeggedRobotCfg.env):
+        num_envs = 4096
+        num_observations = 45
+        num_privileged_obs = 235
+        num_actions = 12
+        proprio_history = 10
+
+    class asset(LeggedRobotCfg.asset):
+        file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/lite3/urdf/Lite3.urdf'
+        name = 'lite3'
+        joint_names = [leg + '_' + joint + '_joint'
+                       for leg in ('FL', 'FR', 'HL', 'HR')
+                       for joint in ('HipX', 'HipY', 'Knee')]
+        foot_names = [leg + '_FOOT' for leg in ('FL', 'FR', 'HL', 'HR')]
+        base_name = 'TORSO'
+        foot_radius = 0.022
+        foot_name = 'FOOT'
+        collapse_fixed_joints = False
+        self_collisions = 1
+        flip_visual_attachments = False
+        penalize_contacts_on = ['TORSO', 'HIP', 'THIGH', 'SHANK']
+        terminate_after_contacts_on = ['TORSO']
+        default_dof_drive_mode = 3
+
+    class init_state(LeggedRobotCfg.init_state):
+        pos = [0.0, 0.0, 0.30]
+        default_joint_angles = {leg + '_' + joint + '_joint': angle
+                                for leg in ('FL', 'FR', 'HL', 'HR')
+                                for joint, angle in (('HipX', 0.0), ('HipY', -0.8), ('Knee', 1.6))}
+
+    class control(LeggedRobotCfg.control):
+        stiffness = {'joint': 30.0}
+        damping = {'joint': 0.8}
+        action_scale = 0.25
+        decimation = 4
+        control_type = 'P'
+
+    class commands(LeggedRobotCfg.commands):
+        heading_command = False
+        curriculum = False
+        num_commands = 3
+        resampling_time = 10.0
+
+        class ranges(LeggedRobotCfg.commands.ranges):
+            lin_vel_x = [0.0, 1.5]
+            lin_vel_y = [0.0, 0.0]
+            ang_vel_yaw = [-1.2, 1.2]
+
+    class terrain(LeggedRobotCfg.terrain):
+        mesh_type = 'trimesh'
+        curriculum = True
+        num_rows = 10
+        num_cols = 20
+        terrain_length = 8.0
+        terrain_width = 8.0
+        terrain_proportions = [0.2] * 5
+        max_init_terrain_level = 5
+        kinds = ['flat', 'gap', 'step', 'hurdle', 'stairs']
+        max_gap = 1.0
+        max_step = 0.75
+        max_hurdle = 0.75
+        max_stair = 0.25
+        heightmap_offset = 0.5
+
+    class domain_rand(LeggedRobotCfg.domain_rand):
+        randomize_friction = True
+        friction_range = [0.2, 1.2]
+        randomize_base_mass = True
+        added_mass_range = [-1.0, 2.0]
+        randomize_pie = True
+        com_shift = 0.05
+        gain_factor = [0.9, 1.1]
+        motor_factor = [0.9, 1.1]
+        max_delay_seconds = 0.015
+        camera_position = 0.01
+        camera_pitch_degrees = 1.0
+        camera_hfov_degrees = [86.0, 88.0]
+
+    class camera:
+        height = 60
+        width = 80
+        history = 2
+        update_every = 5
+        latency_frames = 1
+        near = 0.1
+        far = 3.0
+        hfov_degrees = 87.0
+        position = [0.25, 0.0, 0.06]
+        pitch_degrees = 30.0
+        noise_std = 0.0
+        salt_pepper_probability = 0.0
+        # Network input: (optical-axis depth-near)/(far-near)-0.5.
+        normalize = True
+
+    class rewards(LeggedRobotCfg.rewards):
+        soft_dof_pos_limit = 1.0
+
+        class scales(LeggedRobotCfg.rewards.scales):
+            tracking_lin_vel = 1.5
+            tracking_ang_vel = 0.5
+            lin_vel_z = -1.0
+            ang_vel_xy = -0.05
+            orientation = -1.0
+            dof_acc = -2.5e-7
+            joint_power = -2e-5
+            collision = -10.0
+            action_rate = -0.01
+            smoothness = -0.01
+            torques = 0.0
+            dof_vel = 0.0
+            base_height = 0.0
+            feet_air_time = 0.0
+            feet_stumble = 0.0
+            stand_still = 0.0
 
 
 class Lite3PIECfgPPO(LeggedRobotCfgPPO):

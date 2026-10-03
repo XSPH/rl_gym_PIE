@@ -220,7 +220,7 @@ def test_parsed_native_config_numpy_fields_make_weights_only_safe_checkpoint(tmp
     task.cfg = classes.config()
     task.cfg.seed = np.int64(3)
     task.cfg.domain_rand.friction_range = np.asarray([.2, 1.2], dtype=np.float64)
-    task.cfg.pie.randomization.enabled = np.bool_(True)
+    task.cfg.domain_rand.randomize_pie = np.bool_(True)
     task.sim_params = SimpleNamespace(dt=.005)
     task._parse_cfg(task.cfg)
     assert isinstance(task.cfg.domain_rand.push_interval, np.float64)
@@ -234,7 +234,7 @@ def test_parsed_native_config_numpy_fields_make_weights_only_safe_checkpoint(tmp
     assert type(values["domain_rand"]["push_interval"]) is float
     assert values["domain_rand"]["push_interval"] == 750.
     assert values["domain_rand"]["friction_range"] == [.2, 1.2]
-    assert type(values["pie"]["randomization"]["enabled"]) is bool
+    assert type(values["domain_rand"]["randomize_pie"]) is bool
 
 
 def test_default_network_one_env_checkpoint_load_and_recurrent_inference(tmp_path):

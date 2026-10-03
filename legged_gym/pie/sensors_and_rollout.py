@@ -17,12 +17,12 @@ class PIESensorsAndRollout:
         return self.num_actions
 
     def _init_pie_buffers(self):
-        n, c = self.num_envs, self.config.camera
+        n, c = self.num_envs, self.cfg.camera
         self.rigid_body_states = gymtorch.wrap_tensor(
             self.gym.acquire_rigid_body_state_tensor(self.sim)).view(n, self.num_bodies, 13)
         self.gym.refresh_rigid_body_state_tensor(self.sim)
         self.last_last_actions = torch.zeros_like(self.actions)
-        self.proprio_history = torch.zeros((n, self.config.proprio_history, self.num_obs), device=self.device)
+        self.proprio_history = torch.zeros((n, self.cfg.env.proprio_history, self.num_obs), device=self.device)
         fill = 0.5 if c.normalize else c.far
         self.depth_history = torch.full((n, c.history, c.height, c.width), fill, device=self.device)
         self.depth_queue = torch.full((n, c.latency_frames + 1, c.height, c.width), fill, device=self.device)
@@ -33,7 +33,7 @@ class PIESensorsAndRollout:
         self.kp_factors = torch.ones_like(self.actions)
         self.kd_factors = torch.ones_like(self.actions)
         self.motor_factors = torch.ones_like(self.actions)
-        capacity = int(math.floor(self.config.randomization.max_delay_seconds / self.sim_params.dt + 1e-9)) + 1
+        capacity = int(math.floor(self.cfg.domain_rand.max_delay_seconds / self.sim_params.dt + 1e-9)) + 1
         self.action_queue = torch.zeros((n, max(1, capacity), self.num_actions), device=self.device)
         self.delay_steps = torch.zeros(n, device=self.device, dtype=torch.long)
         self.camera_offsets = torch.tensor(c.position, device=self.device).expand(n, -1).clone()
@@ -78,10 +78,10 @@ class PIESensorsAndRollout:
         scan[..., 1] = torch.sin(yaw[:, None]) * x + torch.cos(yaw[:, None]) * y
         scan += self.root_states[:, None, :3]
         ground = self.terrain_sampler.sample(scan)
-        heightmap = (self.root_states[:, 2:3] - ground - self.config.heightmap_offset).clamp(-1.0, 1.0)
+        heightmap = (self.root_states[:, 2:3] - ground - self.cfg.terrain.heightmap_offset).clamp(-1.0, 1.0)
         feet = self.rigid_body_states[:, self.foot_indices, :3]
         clearance = (feet[..., 2] - self.terrain_sampler.sample(feet)
-                     - self.config.robot.foot_radius).clamp(0.0, 2.0)
+                     - self.cfg.asset.foot_radius).clamp(0.0, 2.0)
         return {'velocity': self.base_lin_vel.clone(), 'foot_clearance': clearance,
                 'heightmap': heightmap}
 
@@ -96,7 +96,7 @@ class PIESensorsAndRollout:
         cq = torch.stack((torch.zeros_like(pitch), torch.sin(pitch),
                           torch.zeros_like(pitch), torch.cos(pitch)), -1)
         self.camera.orientations.copy_(quat_mul(q, cq))
-        self.camera.focal.copy_(self.config.camera.width
+        self.camera.focal.copy_(self.cfg.camera.width
                                / (2 * torch.tan(self.camera_fov * (math.pi / 360))))
         image = self.camera.encode(self.camera.render(ids))
         self.camera_capture_serial += 1
@@ -117,14 +117,14 @@ class PIESensorsAndRollout:
             self.depth_frame_ids[:, -1] = self.depth_queue_frame_ids[:, -1]
 
     def _reset_pie_sensors(self, ids):
-        count, r = len(ids), self.config.randomization
+        count, r = len(ids), self.cfg.domain_rand
         self.last_last_actions[ids] = 0
         self.action_queue[ids] = 0
         self.torques[ids] = 0
         self.last_contacts[ids] = False
         self.last_root_vel[ids] = 0
-        c = self.config.camera
-        if r.enabled:
+        c = self.cfg.camera
+        if r.randomize_pie:
             self.kp_factors[ids] = self._uniform((count, self.num_actions), r.gain_factor)
             self.kd_factors[ids] = self._uniform((count, self.num_actions), r.gain_factor)
             self.motor_factors[ids] = self._uniform((count, self.num_actions), r.motor_factor)

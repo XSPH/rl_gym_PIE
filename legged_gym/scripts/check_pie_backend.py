@@ -13,7 +13,6 @@ import torch
 
 from legged_gym.envs.pie.lite3 import Lite3PIE
 from legged_gym.envs.pie.lite3_config import Lite3PIECfg
-from legged_gym.pie.config import CameraConfig
 from legged_gym.pie.warp_camera import WarpDepthCamera
 
 
@@ -23,7 +22,10 @@ def main():
     vertices = np.array([[-20, -20, 0], [20, -20, 0], [20, 20, 0], [-20, 20, 0]], dtype=np.float32)
     atlas = SimpleNamespace(vertices=vertices,
                             triangles=np.array([[0, 1, 2], [0, 2, 3]], dtype=np.uint32))
-    camera = WarpDepthCamera(atlas, 2, CameraConfig(height=21, width=31, far=4.0, normalize=False), "cuda:0")
+    camera_cfg = Lite3PIECfg().camera
+    camera_cfg.height, camera_cfg.width = 21, 31
+    camera_cfg.far, camera_cfg.normalize = 4.0, False
+    camera = WarpDepthCamera(atlas, 2, camera_cfg, "cuda:0")
     camera.positions[:, 2] = 1.0
     camera.orientations[:, 1] = math.sin(math.pi / 12)
     camera.orientations[:, 3] = math.cos(math.pi / 12)
@@ -35,13 +37,13 @@ def main():
     cfg.seed = 7
     cfg.env.num_envs = 2
     cfg.env.episode_length_s = 0.04
-    cfg.pie.terrain.kinds = ["flat"]
+    cfg.terrain.kinds = ["flat"]
     cfg.terrain.num_rows = cfg.terrain.num_cols = 1
     cfg.terrain.max_init_terrain_level = 0
     cfg.terrain.terrain_proportions = [1.0]
     cfg.terrain.curriculum = False
-    cfg.pie.randomization.enabled = False
-    cfg.pie.observation_noise = False
+    cfg.domain_rand.randomize_pie = False
+    cfg.noise.add_noise = False
     cfg.domain_rand.randomize_friction = cfg.domain_rand.randomize_base_mass = False
     cfg.domain_rand.push_robots = False
     sim = gymapi.SimParams()
