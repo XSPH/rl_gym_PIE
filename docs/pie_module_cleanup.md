@@ -18,6 +18,19 @@
 - 新增 **16 项对照/配置校验/开关独立性检查通过**。地形数组和网络初始权重逐字节相同；
   默认网络连续两步输出逐值相同；FK、相机和辅助标签对照通过。
 
+## 第二阶段：环境与工具合并
+
+- 传感器方法合入 `envs/pie/lite3.py`，`Lite3PIE` 只继承 `LeggedRobot`；
+  `step/reset/post_physics_step/compute_reward/_prepare_reward_function` 与父类是同一方法。
+- `PIETerrain/TerrainAtlas/TerrainSampler` 合入 `utils/terrain.py`，原版 `Terrain` 生成逻辑未改。
+  Warp 相机和 URDF FK 移至 `utils/warp_camera.py`、`utils/kinematics.py`。
+- yaw、轴角函数合入 `utils/math.py`；乘法、旋转、共轭复用 Isaac Gym 的 xyzw Torch 工具。
+  CPU 检查加载 SDK 的纯 Torch 工具源码，不导入 Gym 原生绑定。
+- 回放恢复移至 `utils/helpers.py`；脚本引用同步迁移；Warp 仍在传感器初始化时惰性导入。
+- **87 项 CPU 检查通过**。地形哈希和默认网络权重/输出继续相同，FK/标签/相机对照通过。
+  Isaac Gym 的四元数乘法改变 FP32 运算顺序；90° yaw 相机测试的零分量误差为约
+  `2.98e-7`，该断言绝对容差由 `2e-7` 调整至 `5e-7`。
+
 ## 验证边界
 
 仅静态/CPU 检查；CPU 替身替代 Gym 原生接口，不创建仿真器。

@@ -8,7 +8,6 @@ import torch
 
 from native_cpu_helpers import class_to_dict, load_native_classes
 from test_native_environment import state
-from legged_gym.pie.kinematics import UrdfKinematics
 
 
 @pytest.fixture
@@ -48,7 +47,7 @@ def sensor():
     task._init_pie_buffers()
     assert task.actions.data_ptr() == actions_pointer
     urdf = task.cfg.asset.file.format(LEGGED_GYM_ROOT_DIR=str(Path(__file__).resolve().parents[1]))
-    task.fk = UrdfKinematics(urdf, task.cfg.asset.joint_names,
+    task.fk = classes.kinematics.UrdfKinematics(urdf, task.cfg.asset.joint_names,
                             task.cfg.asset.base_name, "cpu")
     task.terrain_sampler = NS(sample=lambda points: torch.zeros(points.shape[:-1]))
     image = torch.zeros(3, 8, 8)
@@ -225,7 +224,7 @@ def test_nonfinite_state_stops_before_warp_render(sensor):
 
 
 def test_camera_extrinsics_follow_robot_yaw_and_point_downward(sensor):
-    from legged_gym.pie.math_utils import quat_rotate
+    quat_rotate = load_native_classes().torch_utils.quat_apply
     angle = torch.tensor(torch.pi / 4)
     sensor.root_states[1, 3:7] = torch.tensor([0., 0., torch.sin(angle), torch.cos(angle)])
     sensor._render_depth()
@@ -237,7 +236,7 @@ def test_camera_extrinsics_follow_robot_yaw_and_point_downward(sensor):
     torch.testing.assert_close(forward[0], torch.tensor([torch.cos(pitch), 0., -torch.sin(pitch)]),
                                atol=1e-7, rtol=1e-6)
     torch.testing.assert_close(forward[1], torch.tensor([0., torch.cos(pitch), -torch.sin(pitch)]),
-                               atol=2e-7, rtol=1e-6)
+                               atol=5e-7, rtol=1e-6)  # Native quat_mul reorders FP32 arithmetic.
 
 
 def test_policy_joint_order_maps_actions_and_sensors_to_native_dofs(sensor):

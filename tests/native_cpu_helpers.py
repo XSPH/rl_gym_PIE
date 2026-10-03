@@ -17,6 +17,15 @@ import rsl_rl.runners  # Initialize TensorBoard before the temporary module cach
 
 ROOT = Path(__file__).parents[1]
 
+# The SDK's torch_utils.py contains pure Torch functions and imports no native
+# Gym bindings. Load those actual quaternion operations while keeping all
+# simulator interfaces below as CPU substitutes.
+_sdk = importlib.util.find_spec('isaacgym')
+_utils_spec = importlib.util.spec_from_file_location(
+    'pie_cpu_isaacgym_torch_utils', Path(_sdk.origin).parent / 'torch_utils.py')
+_torch_utils = importlib.util.module_from_spec(_utils_spec)
+_utils_spec.loader.exec_module(_torch_utils)
+
 
 def module(name, **values):
     result = ModuleType(name)
@@ -43,29 +52,13 @@ def class_to_dict(value):
             if not key.startswith("_") and not callable(getattr(value, key))}
 
 
-def quat_rotate_inverse(quat, vector):
-    # Isaac Gym xyzw rotation, implemented only so native state-refresh code can
-    # run on CPU. No task behavior (rewards, resets, sensors) is substituted.
-    xyz = quat[:, :3]
-    return (vector * (2 * quat[:, 3].square() - 1)[:, None]
-            - 2 * quat[:, 3, None] * torch.cross(xyz, vector, dim=-1)
-            + 2 * xyz * (xyz * vector).sum(-1, keepdim=True))
-
-
 def load_native_classes():
     """Return task/config classes while keeping fake imports local to this call."""
     gymapi = module("isaacgym.gymapi", UP_AXIS_Z=2, DOMAIN_SIM=0,
                     Vec3=lambda *args: SimpleNamespace(x=args[0], y=args[1], z=args[2]))
     gymtorch = module("isaacgym.gymtorch", wrap_tensor=lambda tensor: tensor,
                       unwrap_tensor=lambda tensor: tensor)
-    utils = module("isaacgym.torch_utils", quat_rotate_inverse=quat_rotate_inverse,
-                   quat_apply=lambda quat, vector: quat_rotate_inverse(
-                       torch.cat((-quat[:, :3], quat[:, 3:]), -1), vector),
-                   torch_rand_float=lambda low, high, shape, device:
-                       low + (high-low) * torch.rand(*shape, device=device),
-                   to_torch=lambda value, **kwargs: torch.as_tensor(value, **kwargs),
-                   get_axis_params=lambda value, axis: [value if index == axis else 0
-                                                       for index in range(3)])
+    utils = _torch_utils
     gymutil = module("isaacgym.gymutil")
     class SubTerrain:
         def __init__(self, name, width, length, vertical_scale, horizontal_scale):
@@ -85,8 +78,6 @@ def load_native_classes():
         "legged_gym.envs.pie": package("legged_gym.envs.pie", "legged_gym/envs/pie"),
         "legged_gym.utils": package("legged_gym.utils", "legged_gym/utils"),
         "legged_gym.utils.helpers": module("legged_gym.utils.helpers", class_to_dict=class_to_dict),
-        "legged_gym.utils.math": module("legged_gym.utils.math",
-             wrap_to_pi=lambda angle: (angle + torch.pi) % (2 * torch.pi) - torch.pi),
         "legged_gym.utils.isaacgym_utils": module("legged_gym.utils.isaacgym_utils",
              get_euler_xyz=lambda quat: torch.zeros(quat.shape[0], 3)),
     }
@@ -99,6 +90,9 @@ def load_native_classes():
                 ("legged_gym.envs.base.legged_robot_config", "legged_gym/envs/base/legged_robot_config.py"),
                 ("legged_gym.envs.base.base_task", "legged_gym/envs/base/base_task.py"),
                 ("legged_gym.utils.helpers", "legged_gym/utils/helpers.py"),
+                ("legged_gym.utils.math", "legged_gym/utils/math.py"),
+                ("legged_gym.utils.kinematics", "legged_gym/utils/kinematics.py"),
+                ("legged_gym.utils.terrain", "legged_gym/utils/terrain.py"),
                 ("legged_gym.envs.base.legged_robot", "legged_gym/envs/base/legged_robot.py"),
                 ("legged_gym.envs.pie.lite3_config", "legged_gym/envs/pie/lite3_config.py"),
                 ("legged_gym.envs.pie.lite3", "legged_gym/envs/pie/lite3.py"),
@@ -108,12 +102,15 @@ def load_native_classes():
             sys.modules[name] = obj
             spec.loader.exec_module(obj)
             loaded[name] = obj
-        terrain_module = sys.modules["legged_gym.pie.terrain"]
+        terrain_module = loaded["legged_gym.utils.terrain"]
     return SimpleNamespace(
         base=loaded["legged_gym.envs.base.legged_robot"].LeggedRobot,
         task=loaded["legged_gym.envs.pie.lite3"].Lite3PIE,
         terrain=terrain_module.PIETerrain,
         sampler=terrain_module.TerrainSampler,
+        kinematics=loaded["legged_gym.utils.kinematics"],
+        math=loaded["legged_gym.utils.math"],
+        torch_utils=utils,
         helpers=loaded["legged_gym.utils.helpers"],
         registry=loaded["legged_gym.utils.task_registry"].TaskRegistry,
         config=loaded["legged_gym.envs.pie.lite3_config"].Lite3PIECfg,

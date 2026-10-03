@@ -24,3 +24,13 @@ def torch_rand_sqrt_float(lower, upper, shape, device):
     r = torch.where(r<0., -torch.sqrt(-r), torch.sqrt(r))
     r =  (r + 1.) / 2.
     return (upper - lower) * r + lower
+
+
+def quat_yaw(q):
+    x, y, z, w = q.unbind(-1)
+    return torch.atan2(2 * (w * z + x * y), 1 - 2 * (y.square() + z.square()))
+
+
+def axis_angle(axis, angle):
+    return torch.cat((axis * torch.sin(angle[..., None] * 0.5),
+                      torch.cos(angle[..., None] * 0.5)), dim=-1)

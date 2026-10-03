@@ -4,7 +4,8 @@ import xml.etree.ElementTree as ET
 
 import torch
 
-from .math_utils import axis_angle, quat_mul, quat_rotate
+from isaacgym.torch_utils import quat_mul, quat_apply as quat_rotate
+from .math import axis_angle
 
 
 def _vector(node, key, default):

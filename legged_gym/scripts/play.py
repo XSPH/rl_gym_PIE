@@ -13,7 +13,7 @@ def play(args):
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
     if args.task == "lite3_pie":
         import json
-        from legged_gym.pie.playback import restore_playback_config
+        from legged_gym.utils.helpers import restore_playback_config
         from legged_gym.utils.helpers import update_class_from_dict
         if args.checkpoint_file is None:
             raise ValueError("PIE play requires --checkpoint_file")

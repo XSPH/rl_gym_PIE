@@ -13,7 +13,7 @@ import torch
 
 from legged_gym.envs.pie.lite3 import Lite3PIE
 from legged_gym.envs.pie.lite3_config import Lite3PIECfg
-from legged_gym.pie.warp_camera import WarpDepthCamera
+from legged_gym.utils.warp_camera import WarpDepthCamera
 
 
 def main():

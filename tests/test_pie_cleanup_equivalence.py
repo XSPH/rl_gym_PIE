@@ -123,3 +123,35 @@ def test_pie_randomization_switch_preserves_independent_native_switches(sensor):
     assert not sensor.cfg.domain_rand.randomize_friction
     assert not sensor.cfg.domain_rand.randomize_base_mass
     assert not sensor.cfg.domain_rand.push_robots
+
+
+def test_merged_task_inherits_native_step_reset_and_reward_methods():
+    classes = load_native_classes()
+    assert classes.task.__bases__ == (classes.base,)
+    for name in ('step', 'reset', 'post_physics_step', '_prepare_reward_function', 'compute_reward'):
+        assert getattr(classes.task, name) is getattr(classes.base, name)
+
+
+@pytest.mark.parametrize('shape', [(3,), (2, 3)])
+def test_native_quaternions_keep_xyzw_shapes_rotation_and_axis_angle(shape):
+    classes = load_native_classes()
+    torch.manual_seed(59)
+    first, second = torch.randn(*shape, 4), torch.randn(*shape, 4)
+    first = first / first.norm(dim=-1, keepdim=True)
+    second = second / second.norm(dim=-1, keepdim=True)
+    xyz = (first[..., 3:] * second[..., :3] + second[..., 3:] * first[..., :3]
+           + torch.cross(first[..., :3], second[..., :3], dim=-1))
+    scalar = first[..., 3:] * second[..., 3:] - (first[..., :3] * second[..., :3]).sum(-1, keepdim=True)
+    torch.testing.assert_close(classes.torch_utils.quat_mul(first, second),
+                               torch.cat((xyz, scalar), -1), atol=4e-7, rtol=1e-6)
+    vector = torch.randn(*shape, 3)
+    rotation = classes.torch_utils.quat_apply(first, vector)
+    inverse = classes.torch_utils.quat_apply(classes.torch_utils.quat_conjugate(first), rotation)
+    assert rotation.shape == vector.shape
+    torch.testing.assert_close(inverse, vector, atol=1e-6, rtol=1e-6)
+    axis = torch.zeros(*shape, 3)
+    axis[..., 2] = 1
+    angle = torch.linspace(-2, 2, int(np.prod(shape))).reshape(shape)
+    quat = classes.math.axis_angle(axis, angle)
+    assert quat.shape == (*shape, 4)
+    torch.testing.assert_close(classes.math.quat_yaw(quat), angle, atol=3e-7, rtol=1e-6)

@@ -2,7 +2,8 @@
 import pytest
 
 from native_cpu_helpers import class_to_dict, load_native_classes
-from legged_gym.pie.playback import restore_playback_config
+def restore_playback_config(*args):
+    return load_native_classes().helpers.restore_playback_config(*args)
 
 
 def test_native_checkpoint_restores_training_units_and_keeps_runtime_env_count():

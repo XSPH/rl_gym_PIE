@@ -4,7 +4,6 @@ import numpy as np
 import torch
 
 from pathlib import Path
-from legged_gym.pie.kinematics import UrdfKinematics
 from native_cpu_helpers import load_native_classes
 from test_native_environment import state
 
@@ -121,14 +120,15 @@ def test_native_root_reset_adds_base_height_exactly_once():
 
 
 def test_asset_complete_joint_order_and_stand_pose():
-    cfg = load_native_classes().config()
+    classes = load_native_classes()
+    cfg = classes.config()
     path = Path(cfg.asset.file.format(LEGGED_GYM_ROOT_DIR=str(Path(__file__).resolve().parents[1])))
     root = ET.parse(str(path)).getroot()
     movable = [j.attrib["name"] for j in root.findall("joint") if j.attrib["type"] != "fixed"]
     assert movable == cfg.asset.joint_names
     for mesh in root.findall(".//mesh"):
         assert (path.parent / mesh.attrib["filename"]).resolve().is_file()
-    fk = UrdfKinematics(path, cfg.asset.joint_names, cfg.asset.base_name, "cpu")
+    fk = classes.kinematics.UrdfKinematics(path, cfg.asset.joint_names, cfg.asset.base_name, "cpu")
     states = fk.forward(torch.tensor([[0.0, 0.0, cfg.init_state.pos[2]]]),
                         torch.tensor([[0.0, 0.0, 0.0, 1.0]]),
                         torch.tensor([[cfg.init_state.default_joint_angles[name] for name in cfg.asset.joint_names]]))

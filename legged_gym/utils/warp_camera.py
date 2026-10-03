@@ -41,7 +41,7 @@ def _raycast(mesh: wp.uint64,
 class WarpDepthCamera:
     def __init__(self, atlas, count, config, device):
         wp.init()
-        self.config, self.device, self.count = config, device, count
+        self.cfg, self.device, self.count = config, device, count
         self.positions = torch.zeros((count, 3), dtype=torch.float32, device=device)
         self.orientations = torch.zeros((count, 4), dtype=torch.float32, device=device)
         self.orientations[:, 3] = 1.0
@@ -65,15 +65,15 @@ class WarpDepthCamera:
         # Sharing the current PyTorch stream establishes ordering for pose writes
         # and image reads, without a device-wide synchronize on every frame.
         stream = wp.stream_from_torch(torch.cuda.current_stream(self.device))
-        wp.launch(_raycast, dim=(ids.numel(), self.config.height, self.config.width),
+        wp.launch(_raycast, dim=(ids.numel(), self.cfg.height, self.cfg.width),
                   inputs=[self.mesh.id, wp.from_torch(ids), self._positions,
-                          self._orientations, self._focal, self.config.width,
-                          self.config.height, self.config.near, self.config.far, self._depth],
+                          self._orientations, self._focal, self.cfg.width,
+                          self.cfg.height, self.cfg.near, self.cfg.far, self._depth],
                   device=self.device, stream=stream)
         return self.depth
 
     def encode(self, image):
-        cfg = self.config
+        cfg = self.cfg
         image = image.clamp(cfg.near, cfg.far)
         if cfg.noise_std:
             image = (image + torch.randn_like(image) * cfg.noise_std).clamp(cfg.near, cfg.far)
