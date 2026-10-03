@@ -103,6 +103,7 @@ class LeggedRobot(BaseTask):
         # compute observations, rewards, resets, ...
         self.check_termination()
         self.compute_reward()
+        self._before_reset()
         env_ids = self.reset_buf.nonzero(as_tuple=False).flatten()
         self.reset_idx(env_ids)
         
@@ -114,6 +115,10 @@ class LeggedRobot(BaseTask):
         self.last_actions[:] = self.actions[:]
         self.last_dof_vel[:] = self.dof_vel[:]
         self.last_root_vel[:] = self.root_states[:, 7:13]
+
+    def _before_reset(self):
+        """Optional task snapshot after rewards and before indexed resets."""
+        pass
 
     def check_termination(self):
         """ Check if environments need to be reset
@@ -374,7 +379,7 @@ class LeggedRobot(BaseTask):
         if len(push_env_ids) == 0:
             return
         max_vel = self.cfg.domain_rand.max_push_vel_xy
-        self.root_states[:, 7:9] = torch_rand_float(-max_vel, max_vel, (self.num_envs, 2), device=self.device) # lin vel x/y
+        self.root_states[push_env_ids, 7:9] = torch_rand_float(-max_vel, max_vel, (len(push_env_ids), 2), device=self.device) # lin vel x/y
         
         env_ids_int32 = push_env_ids.to(dtype=torch.int32)
         self.gym.set_actor_root_state_tensor_indexed(self.sim,

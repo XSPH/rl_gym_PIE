@@ -1,4 +1,8 @@
-"""Serializable configuration; unspecified paper parameters are explicit choices."""
+"""PIE sensor/robot additions and serialized native-config convenience values.
+
+Simulation/control/commands/rewards are owned by LeggedRobotCfg; Lite3PIE mirrors
+those values here for metadata rather than using them as another config source.
+"""
 import json
 import os
 from dataclasses import asdict, dataclass, field
@@ -51,12 +55,12 @@ class CameraConfig:
 @dataclass
 class TerrainConfig:
     levels: int = 10
-    variants: int = 2
+    variants: int = 4
     kinds: List[str] = field(default_factory=lambda: ["flat", "gap", "step", "hurdle", "stairs"])
     length: float = 8.0
-    width: float = 3.0
-    spacing: float = 2.0
-    resolution: float = 0.05
+    width: float = 8.0
+    spacing: float = 0.0
+    resolution: float = 0.1
     floor_height: float = -2.0
     initial_max_level: int = 5
     curriculum: bool = True
@@ -96,7 +100,6 @@ class EnvConfig:
     command_seconds: float = 10.0
     forward_velocity: List[float] = field(default_factory=lambda: [0.0, 1.5])
     yaw_velocity: List[float] = field(default_factory=lambda: [-1.2, 1.2])
-    command_mode: str = "velocity"
     angular_velocity_scale: float = 0.25
     joint_velocity_scale: float = 0.05
     heightmap_offset: float = 0.5
@@ -143,8 +146,6 @@ class EnvConfig:
             raise ValueError("Unsupported terrain kinds.")
         if not self.terrain.scan_x or not self.terrain.scan_y:
             raise ValueError("Height scan cannot be empty.")
-        if self.command_mode not in ("velocity", "goal"):
-            raise ValueError("command_mode must be velocity or goal.")
         return self
 
     def resolve_urdf(self):

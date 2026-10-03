@@ -1,3 +1,6 @@
+"""Lite3 task additions; original config fields own training and rewards."""
+from dataclasses import asdict
+
 from legged_gym.envs.base.legged_robot_config import LeggedRobotCfg, LeggedRobotCfgPPO
 from legged_gym.pie.config import EnvConfig
 
@@ -17,57 +20,70 @@ class Lite3PIECfg(LeggedRobotCfg):
         self.asset.foot_name = 'FOOT'
         self.asset.collapse_fixed_joints = False
         self.asset.self_collisions = 1
-        self.asset.penalize_contacts_on = ['HIP', 'THIGH', 'SHANK']
+        self.asset.flip_visual_attachments = False
+        self.asset.penalize_contacts_on = ['TORSO', 'HIP', 'THIGH', 'SHANK']
         self.asset.terminate_after_contacts_on = ['TORSO']
         self.asset.default_dof_drive_mode = 3
         self.control.stiffness = {'joint': self.pie.robot.kp}
         self.control.damping = {'joint': self.pie.robot.kd}
         self.control.action_scale = self.pie.robot.action_scale
-        self.control.decimation = self.pie.decimation
-        self.pie.observation_noise = self.noise.add_noise
-        self.pie.command_seconds = self.commands.resampling_time
-        self.pie.robot.action_clip = self.normalization.clip_actions
-        self.pie.terrain.initial_max_level = self.terrain.max_init_terrain_level
+        self.control.decimation = 4
+        self.control.control_type = 'P'
         self.domain_rand.randomize_friction = True
         self.domain_rand.friction_range = [0.2, 1.2]
         self.domain_rand.randomize_base_mass = True
         self.domain_rand.added_mass_range = [-1.0, 2.0]
-        self.rewards.soft_dof_pos_limit = 1.0
         self.commands.heading_command = False
+        self.commands.curriculum = False
         self.commands.num_commands = 3
+        self.commands.resampling_time = 10.0
         self.commands.ranges.lin_vel_x = [0.0, 1.5]
         self.commands.ranges.lin_vel_y = [0.0, 0.0]
         self.commands.ranges.ang_vel_yaw = [-1.2, 1.2]
+        self.terrain.mesh_type = 'trimesh'
+        self.terrain.curriculum = True
+        self.terrain.num_rows = 10
+        self.terrain.num_cols = 20
+        self.terrain.terrain_length = 8.0
+        self.terrain.terrain_width = 8.0
+        self.terrain.terrain_proportions = [0.2] * 5
+        self.terrain.max_init_terrain_level = 5
+        self.rewards.soft_dof_pos_limit = 1.0
+        # Original reward registration and dt scaling remain the only pipeline.
+        scales = {'tracking_lin_vel': 1.5, 'tracking_ang_vel': 0.5,
+                  'lin_vel_z': -1.0, 'ang_vel_xy': -0.05, 'orientation': -1.0,
+                  'dof_acc': -2.5e-7, 'joint_power': -2e-5, 'collision': -10.0,
+                  'action_rate': -0.01, 'smoothness': -0.01}
+        for name in dir(self.rewards.scales):
+            if not name.startswith('_'):
+                setattr(self.rewards.scales, name, 0.0)
+        for name, value in scales.items():
+            setattr(self.rewards.scales, name, value)
 
 
 class Lite3PIECfgPPO(LeggedRobotCfgPPO):
     runner_class_name = 'PIEOnPolicyRunner'
+
     def __init__(self):
         super().__init__()
         from rsl_rl.modules import ModelConfig
-        from rsl_rl.algorithms import PPOConfig
-        self.pie_model = ModelConfig()
-        self.pie_ppo = PPOConfig()
-        self.sync_pie_config()
+        model = asdict(ModelConfig())
+        for native_owned in ('initial_std', 'actor_hidden_dims', 'critic_hidden_dims'):
+            model.pop(native_owned)
+        self.policy.model_config = model
+        self.algorithm.estimation_weight = 1.0
+        self.algorithm.kl_weight = 1.0
 
-    def sync_pie_config(self):
-        """Use the original policy/algorithm fields as the training authority."""
-        self.pie_model.initial_std = self.policy.init_noise_std
-        self.pie_model.actor_hidden_dims = tuple(self.policy.actor_hidden_dims)
-        self.pie_model.critic_hidden_dims = tuple(self.policy.critic_hidden_dims)
-        fields = {
-            'learning_rate': 'learning_rate', 'gamma': 'gamma',
-            'gae_lambda': 'lam', 'clip': 'clip_param',
-            'epochs': 'num_learning_epochs', 'minibatches': 'num_mini_batches',
-            'entropy_weight': 'entropy_coef', 'value_weight': 'value_loss_coef',
-            'max_grad_norm': 'max_grad_norm', 'schedule': 'schedule',
-            'desired_kl': 'desired_kl',
-        }
-        for pie_name, native_name in fields.items():
-            setattr(self.pie_ppo, pie_name, getattr(self.algorithm, native_name))
+    class policy(LeggedRobotCfgPPO.policy):
+        # Native policy fields own actor/critic widths, activation and std.
+        # PIE adds CNN/Transformer/GRU and estimator dimensions only.
+        model_config = None
 
     class runner(LeggedRobotCfgPPO.runner):
-        experiment_name = 'lite3_pie'
+        policy_class_name = 'PIEActorCritic'
+        algorithm_class_name = 'PIEPPO'
+        experiment_name = 'lite3_pie_native'
         num_steps_per_env = 24
         max_iterations = 15000
         save_interval = 500
+        completed_iteration_numbering = True
