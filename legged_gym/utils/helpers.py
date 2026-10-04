@@ -160,6 +160,8 @@ def get_args():
         {"name": "--output_dir", "type": str, "help": "PIE checkpoint and metrics directory"},
         {"name": "--checkpoint_file", "type": str, "help": "PIE checkpoint for bounded play"},
         {"name": "--steps", "type": int, "default": 2000, "help": "PIE bounded playback control steps (default: 40 seconds)"},
+        {"name": "--show_depth", "action": "store_true", "default": False, "help": "PIE playback: show captured depth and the policy's two history frames"},
+        {"name": "--depth_env", "type": int, "default": 0, "help": "PIE depth window: initial robot index (default: 0)"},
     ]
     # parse arguments
     args = gymutil.parse_arguments(

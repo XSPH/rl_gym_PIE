@@ -67,6 +67,22 @@ python -s legged_gym/scripts/play.py --task=lite3_pie \
 原版按环境编号分配地形列，单环境默认落在平地列；需要同时观察五类地形时使用
 `--num_envs 5`。这属于回放环境数量选择，不改变训练配置。
 
+回放时增加 `--show_depth`，可同时打开机器人深度窗口：
+
+```bash
+python -s legged_gym/scripts/play.py --task=lite3_pie \
+  --checkpoint_file /absolute/path/model_500.pt --num_envs 5 --steps 5000 \
+  --show_depth --depth_env 0
+```
+
+窗口并排显示最新采集帧、策略历史的较旧帧和最新帧；均按实际相机 near/far
+范围显示为米，近处红、远处蓝，归一化策略输入会还原为米。
+窗口内用左右方向键或 `P/N` 切换机器人，`Esc/Q` 或关闭按钮只关闭深度窗口。
+默认选择编号 0；`--depth_env` 可指定初始编号。
+显示只读取当前缓冲，不额外捕获、推进相机队列或更改模型输入，刷新上限跟随
+配置中的相机捕获频率。此窗口需要 Matplotlib、Tk 和桌面显示。
+`--headless --show_depth` 可以只显示深度窗口，关闭 Isaac Gym 第三人称窗口。
+
 ## 原版流程与 PIE 扩展
 
 最终目录中任务与工具位于原版对应位置：
@@ -82,6 +98,7 @@ legged_gym/
     kinematics.py         # URDF FK
     math.py               # yaw 与轴角
     helpers.py            # 原版通用工具与回放配置恢复
+    depth_viewer.py       # 回放时可选的深度图窗口
 rsl_rl/rsl_rl/
   modules/actor_critic_pie.py
   algorithms/ppo_pie.py

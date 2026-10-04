@@ -10,6 +10,9 @@ import torch
 
 
 def play(args):
+    show_depth = getattr(args, "show_depth", False)
+    if show_depth and args.task != "lite3_pie":
+        raise ValueError("--show_depth is available for lite3_pie playback")
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
     if args.task == "lite3_pie":
         import json
@@ -27,8 +30,16 @@ def play(args):
         del checkpoint
         if args.steps < 1:
             raise ValueError("--steps must be positive")
-        env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
+        depth_env = getattr(args, "depth_env", 0)
+        if show_depth and not 0 <= depth_env < env_cfg.env.num_envs:
+            raise ValueError("--depth_env must be between 0 and num_envs - 1")
+        env, depth_viewer = None, None
         try:
+            if show_depth:
+                from legged_gym.utils.depth_viewer import DepthViewer
+                depth_viewer = DepthViewer(env_cfg.camera, env_cfg.env.num_envs, depth_env,
+                                           env_cfg.sim.dt * env_cfg.control.decimation)
+            env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
             runner, _ = task_registry.make_alg_runner(
                 env=env, name=args.task, args=args, train_cfg=train_cfg, log_root=None)
             runner.load(args.checkpoint_file, load_optimizer=False)
@@ -38,6 +49,8 @@ def play(args):
             reset_messages = 0
             with torch.no_grad():
                 for step in range(args.steps):
+                    if depth_viewer is not None:
+                        depth_viewer.update(env)
                     actions = policy(obs)
                     obs, _, rewards, dones, infos = env.step(actions)
                     runner.alg.actor_critic.reset(dones)
@@ -55,7 +68,12 @@ def play(args):
                               "completed_episodes": episode_count,
                               "checkpoint": args.checkpoint_file}, indent=2))
         finally:
-            env.close()
+            try:
+                if depth_viewer is not None:
+                    depth_viewer.close()
+            finally:
+                if env is not None:
+                    env.close()
         return
     # override some parameters for testing
     env_cfg.env.num_envs = min(env_cfg.env.num_envs, 100)
