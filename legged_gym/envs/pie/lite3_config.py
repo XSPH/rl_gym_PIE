@@ -119,9 +119,9 @@ class Lite3PIECfg(LeggedRobotCfg):
             collision = -10.0
             action_rate = -0.01
             smoothness = -0.01
-            torques = 0.0
+            torques = -1e-4
             dof_vel = 0.0
-            base_height = 0.0
+            base_height = -1.
             feet_air_time = 0.0
             feet_stumble = 0.0
             stand_still = 0.0
