@@ -89,6 +89,7 @@ class Lite3PIECfg(LeggedRobotCfg):
     class camera:
         # Render real depth for diagnostics; zero only the encoded policy input.
         input_mode = 'zero'  # 'depth' or 'zero'
+        render_for_debug = False  # play --show_depth enables real captures in zero mode.
         height = 60
         width = 80
         history = 2

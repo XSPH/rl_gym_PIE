@@ -23,6 +23,7 @@ def test_effective_nested_configuration_changes_only_blind_flat_experiment_field
     expected = deepcopy(BASELINE['configuration'])
     expected['control'].update(stiffness={'joint': 20.0}, damping={'joint': 0.5})
     expected['camera']['input_mode'] = 'zero'
+    expected['camera']['render_for_debug'] = False
     expected['domain_rand']['randomize_camera'] = False
     expected['terrain'].update(curriculum=False, kinds=['flat'],
                                terrain_proportions=[1.0], max_init_terrain_level=0)

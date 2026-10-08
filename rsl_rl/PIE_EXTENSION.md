@@ -72,9 +72,11 @@ Each optimizer step gets a new cache. Non-reentrant CNN activation checkpointing
 is retained. There is no image quantization, frozen rollout-feature replacement,
 or gradient accumulation.
 
-The blind-flat experiment uses `camera.input_mode='zero'`: the task replaces
-encoded images with zeros before writing the history/latency buffers. The raw
-camera still captures; frame IDs, frame pooling, and feature reuse stay active.
+The blind-flat experiment uses `camera.input_mode='zero'`: the task directly
+supplies a reusable zero image to the history/latency buffers. Training skips
+Warp camera initialization, rendering, and encoding. Playback `--show_depth`
+sets `camera.render_for_debug=True` to capture real depth for display while
+keeping policy input zero. Logical frame IDs, frame pooling, and feature reuse stay active.
 CNN parameters remain in Adam. With zero input, the first convolution's weight
 gradient is zero, while its bias and deeper network parameters can train.
 
@@ -101,7 +103,9 @@ The environment snapshot includes `camera.input_mode` and the independent
 `domain_rand.randomize_camera` switch. Loading checks the saved input mode before
 touching weights or Adam, including inference loads. Existing v4 checkpoints
 without the input-mode field are interpreted as `depth`. Playback restores the
-saved mode and disables both actuator and camera randomization.
+saved mode and disables both actuator and camera randomization. The optional
+rendering flag is selected by playback CLI rather than inherited from a saved
+config; existing v4 zero-mode checkpoints remain valid for resume.
 
 CPU checks exercise native runner ordering, default stock PPO behavior,
 actor privacy, timeout bootstrap, recurrent resets/replay, joint gradients,

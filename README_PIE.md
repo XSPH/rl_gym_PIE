@@ -116,7 +116,10 @@ rsl_rl/rsl_rl/
 `domain_rand.randomize_pie` 控制 COM、增益、电机、动作延迟；
 独立的 `domain_rand.randomize_camera` 控制相机安装位置、俯角和 FOV，默认关闭。
 `camera.input_mode` 支持 `zero`（本分支默认）和 `depth`，非法值初始化时报错。
-相机继续渲染和编码；`zero` 模式在写入历史/固定延迟缓冲前归零。
+`zero` 模式默认跳过 Warp 相机初始化、渲染和编码，直接使用全零图像，
+历史、固定延迟和逻辑帧编号保持原节奏。CNN 和全部辅助损失仍正常计算。
+play 的 `--show_depth` 设置 `camera.render_for_debug=True`，启用真实相机画面；
+策略输入继续为零。此诊断开关不参与视觉模式匹配。
 原版摩擦、附加质量和推扰由各自开关控制。正式规模仍为 4096/24/5/4/15000/500。
 
 `train.py → task_registry → OnPolicyRunner.learn → PPO.act → LeggedRobot.step`
@@ -127,7 +130,7 @@ rsl_rl/rsl_rl/
 - `get_pie_observations()` 提供本体历史、深度帧与索引；`extras['pie']` 提供重置前标签和诊断。
 - 原版 runner 的采样/记账/日志流程与 PPO 的损失、KL 调度、优化器和 GAE 复用；PIE 扩展 recurrent 多模态批次及辅助损失。
 - 本体 10 帧、深度 2 帧经 MLP/CNN → Transformer → GRU，估计速度、四足离地高度、地图潜变量及 VAE 潜变量。Actor 不读取特权真值。
-- 相机跟随 torso 根位姿，固定安装位置 `[0.25,0,0.06]`、俯角 30°、FOV 87°；保留 10 Hz 捕获、100 ms 固定延迟、50 Hz 控制，深度噪声及椒盐噪声为 0。
+- 逻辑深度更新为 10 Hz，固定延迟 100 ms、控制 50 Hz。启用相机时跟随 torso，固定安装位置 `[0.25,0,0.06]`、俯角 30°、FOV 87°，深度噪声及椒盐噪声为 0。
 - 射线当前只查询静态地形，不包含机器人自身或其他动态物体的遮挡。
 - 图像帧池保存唯一 FP32 图像，控制步存索引；同一次逻辑 minibatch 内复用 CNN 计算图，保留梯度及当前激活重算。未启用梯度累积。
 
@@ -174,5 +177,6 @@ PYTHONNOUSERSITE=1 PYTHONDONTWRITEBYTECODE=1 CUDA_VISIBLE_DEVICES='' \
   python -s -m pytest -q tests --basetemp=/tmp/pie-blind-flat-tests
 ```
 
-本次没有启动 Isaac Gym 仿真、GPU 检查、正式训练或真实回放，没有推送 GitHub 或同步 4090。
-CPU 检查只确认数据流、网络更新与恢复逻辑；基础运动是否学会需后续训练和回放判断。
+渲染跳过优化及验证见 [不渲染相机的零输入路径](docs/pie_blind_flat_no_render.md)。
+本次实现检查没有启动 Isaac Gym 仿真或 GPU 训练；CPU 检查只确认数据流、网络更新与恢复逻辑。
+基础运动是否学会和单轮耗时降低多少，需要后续训练和回放判断。

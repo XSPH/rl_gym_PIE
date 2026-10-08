@@ -1,12 +1,14 @@
 """CPU checks of the blind experiment through actual task and RSL methods."""
 from copy import deepcopy
+import builtins
+import sys
 from types import SimpleNamespace as NS
 
 import numpy as np
 import pytest
 import torch
 
-from native_cpu_helpers import load_native_classes
+from native_cpu_helpers import load_native_classes, module
 from native_rsl_helpers import TensorEnvironment, model_config, train_config
 from rsl_rl.modules.actor_critic_pie import PIEActorCritic
 from rsl_rl.runners.on_policy_runner_pie import PIEOnPolicyRunner
@@ -25,6 +27,17 @@ def _single_cpu_thread():
 def blind_sensor(sensor):
     sensor.cfg.camera.input_mode = 'zero'
     sensor._init_pie_buffers()
+    sensor._init_depth_camera()
+    sensor._reset_pie_sensors(torch.arange(sensor.num_envs))
+    sensor.compute_observations()
+    return sensor
+
+
+@pytest.fixture
+def blind_debug_sensor(sensor):
+    sensor.cfg.camera.input_mode = 'zero'
+    sensor.cfg.camera.render_for_debug = True
+    sensor._init_pie_buffers()
     sensor._reset_pie_sensors(torch.arange(sensor.num_envs))
     sensor.compute_observations()
     return sensor
@@ -36,7 +49,8 @@ def assert_blind_inputs(task):
     for value in (task.depth_queue, task.depth_history, obs['depth']):
         assert torch.isfinite(value).all()
         assert torch.count_nonzero(value) == 0
-    assert torch.count_nonzero(task.camera.depth) > 0
+    if task.camera is not None:
+        assert torch.count_nonzero(task.camera.depth) > 0
     return obs
 
 
@@ -44,6 +58,7 @@ def test_blind_flat_defaults_keep_training_scale_and_all_flat_geometry():
     classes = load_native_classes()
     cfg, training = classes.config(), classes.train_config()
     assert cfg.camera.input_mode == 'zero' and not cfg.domain_rand.randomize_camera
+    assert not cfg.camera.render_for_debug
     assert cfg.camera.noise_std == cfg.camera.salt_pepper_probability == 0
     assert cfg.domain_rand.randomize_pie and cfg.noise.add_noise
     assert cfg.domain_rand.randomize_friction and cfg.domain_rand.randomize_base_mass
@@ -80,6 +95,7 @@ def test_invalid_camera_input_mode_fails_before_simulation(mode):
 def test_initialization_and_first_capture_are_zero_with_both_encodings(sensor, normalized):
     sensor.cfg.camera.input_mode, sensor.cfg.camera.normalize = 'zero', normalized
     sensor._init_pie_buffers()
+    sensor._init_depth_camera()
     assert torch.count_nonzero(sensor.depth_history) == 0
     assert torch.count_nonzero(sensor.depth_queue) == 0
     assert (sensor.depth_frame_ids == -1).all()
@@ -155,8 +171,8 @@ def test_camera_randomization_is_independent_and_partial_reset_is_local(blind_se
     assert_blind_inputs(task)
 
 
-def test_different_raw_captures_produce_identical_actions_for_fixed_proprio_and_gru(blind_sensor):
-    task = blind_sensor
+def test_different_raw_captures_produce_identical_actions_for_fixed_proprio_and_gru(blind_debug_sensor):
+    task = blind_debug_sensor
     torch.manual_seed(91)
     model = PIEActorCritic(model_config(proprio_dim=45, proprio_history=10,
                                        action_dim=12, heightmap_dim=187, critic_dim=235)).eval()
@@ -174,6 +190,68 @@ def test_different_raw_captures_produce_identical_actions_for_fixed_proprio_and_
         actual, actual_hidden, _ = model.policy_distribution(second, hidden)
     torch.testing.assert_close(actual.mean, expected.mean, rtol=0, atol=0)
     torch.testing.assert_close(actual_hidden, expected_hidden, rtol=0, atol=0)
+    task.cfg.camera.render_for_debug = False
+    task._init_depth_camera()
+    task._render_depth()
+    task._render_depth()
+    without_camera = assert_blind_inputs(task)
+    with torch.no_grad():
+        direct, direct_hidden, _ = model.policy_distribution(without_camera, hidden)
+    torch.testing.assert_close(direct.mean, expected.mean, rtol=0, atol=0)
+    torch.testing.assert_close(direct_hidden, expected_hidden, rtol=0, atol=0)
+
+
+def test_zero_training_never_imports_warp_or_constructs_a_camera(sensor, monkeypatch):
+    task = sensor
+    task.cfg.camera.input_mode = 'zero'
+    task._init_pie_buffers()
+    original_import = builtins.__import__
+    def forbid_warp(name, *args, **kwargs):
+        if name == 'warp' or name == 'legged_gym.utils.warp_camera':
+            raise AssertionError('Zero training must not initialize Warp')
+        return original_import(name, *args, **kwargs)
+    monkeypatch.setattr(builtins, '__import__', forbid_warp)
+    task._init_depth_camera()
+    assert task.camera is None
+    task._reset_pie_sensors(torch.arange(task.num_envs))
+    task.compute_observations()
+    zero_pointer = task._zero_depth_image.data_ptr()
+    for _ in range(3):
+        task._render_depth()
+        assert_blind_inputs(task)
+        assert task._zero_depth_image.data_ptr() == zero_pointer
+    assert task.camera is None
+
+
+@pytest.mark.parametrize('mode', ['depth', 'zero'])
+@pytest.mark.parametrize('show_depth', [False, True])
+def test_camera_is_constructed_only_for_visual_input_or_debug(sensor, monkeypatch, mode, show_depth):
+    task = sensor
+    task.cfg.camera.input_mode, task.cfg.camera.render_for_debug = mode, show_depth
+    task.atlas = object()
+    camera, constructed = task.camera, []
+    def constructor(*args):
+        constructed.append(args)
+        return camera
+    monkeypatch.setitem(sys.modules, 'legged_gym.utils.warp_camera',
+                        module('legged_gym.utils.warp_camera', WarpDepthCamera=constructor))
+    task._init_depth_camera()
+    needed = mode == 'depth' or show_depth
+    assert len(constructed) == int(needed)
+    assert (task.camera is camera) == needed
+    if needed:
+        assert constructed[0] == (task.atlas, task.num_envs, task.cfg.camera, task.device)
+
+
+def test_zero_debug_captures_real_depth_without_encoding_it(blind_debug_sensor):
+    task = blind_debug_sensor
+    def forbidden_encode(image):
+        raise AssertionError('Zero policy input must not encode raw captures')
+    task.camera.encode = forbidden_encode
+    previous_raw = task.camera.depth.clone()
+    task._render_depth()
+    assert not torch.equal(task.camera.depth, previous_raw)
+    assert_blind_inputs(task)
 
 
 class ModeEnvironment(TensorEnvironment):
@@ -246,16 +324,19 @@ def test_blind_resume_restores_training_state_and_keeps_all_auxiliary_losses(tmp
 
 
 @pytest.mark.parametrize('mode', ['depth', 'zero'])
-def test_play_restores_mode_and_full_saved_config_before_runner_load(mode, tmp_path):
+@pytest.mark.parametrize('show_depth', [False, True])
+def test_play_restores_mode_and_full_saved_config_before_runner_load(mode, tmp_path, show_depth):
     classes = load_native_classes()
     original = mode_runner(mode)
     original.env.cfg.domain_rand.randomize_camera = True
+    original.env.cfg.camera.render_for_debug = True
     original.env.cfg.control.stiffness = {'joint': 17.0}
     path = tmp_path / 'play.pt'
     original.save(path)
     saved = torch.load(path, weights_only=True)
-    restored, _ = classes.helpers.restore_playback_config(classes.config(), saved)
+    restored, _ = classes.helpers.restore_playback_config(classes.config(), saved, show_depth=show_depth)
     assert restored.camera.input_mode == mode
+    assert restored.camera.render_for_debug == show_depth
     assert restored.control.stiffness == {'joint': 17.0}
     assert not restored.domain_rand.randomize_camera
     target = mode_runner('zero')
@@ -269,11 +350,13 @@ def test_existing_v4_without_new_fields_plays_depth_and_cannot_resume_blind(tmp_
     mode_runner('depth').save(path)
     saved = torch.load(path, weights_only=True)
     del saved['environment_cfg']['camera']['input_mode']
+    del saved['environment_cfg']['camera']['render_for_debug']
     del saved['environment_cfg']['domain_rand']['randomize_camera']
     torch.save(saved, path)
     restored, _ = classes.helpers.restore_playback_config(classes.config(), saved)
     assert restored.camera.input_mode == 'depth'
     assert not restored.domain_rand.randomize_camera
+    assert not restored.camera.render_for_debug
     visual = mode_runner('depth')
     visual.env.cfg = restored
     visual.load(path, load_optimizer=False)

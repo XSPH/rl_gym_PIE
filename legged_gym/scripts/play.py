@@ -22,7 +22,7 @@ def play(args):
             raise ValueError("PIE play requires --checkpoint_file")
         checkpoint = torch.load(args.checkpoint_file, map_location="cpu", weights_only=True)
         env_cfg.env.num_envs = args.num_envs if args.num_envs is not None else 1
-        env_cfg, source = restore_playback_config(env_cfg, checkpoint)
+        env_cfg, source = restore_playback_config(env_cfg, checkpoint, show_depth=show_depth)
         update_class_from_dict(train_cfg, checkpoint["train_config"])
         train_cfg.runner.resume = False
         print("[PIE playback] {}: envs={}, steps={}, camera.input_mode={}".format(

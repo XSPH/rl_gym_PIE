@@ -232,7 +232,7 @@ def _restore_fields(destination, values, path=""):
             setattr(destination, name, copy.deepcopy(value))
 
 
-def restore_playback_config(env_cfg, checkpoint):
+def restore_playback_config(env_cfg, checkpoint, show_depth=False):
     from rsl_rl.utils.pie_config import depth_input_mode
     if checkpoint.get("pie_checkpoint_version") != 4:
         raise ValueError("This branch requires a native PIE version-4 checkpoint; "
@@ -250,6 +250,8 @@ def restore_playback_config(env_cfg, checkpoint):
     # Existing v4 models predate these fields; never inherit this branch's
     # blind default when playing a model trained with real depth.
     cfg.camera.input_mode = depth_input_mode(environment.get('camera', {}))
+    # Rendering is a playback diagnostic selected by CLI, not a policy input.
+    cfg.camera.render_for_debug = bool(show_depth)
     cfg.env.num_envs = runtime_count
     # A moved checkout uses its own bundled asset. Explicit robot URDFs are
     # still validated by the environment constructor.

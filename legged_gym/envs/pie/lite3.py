@@ -120,7 +120,13 @@ class Lite3PIE(LeggedRobot):
         self.fk = UrdfKinematics(self.urdf, self.cfg.asset.joint_names,
                                 self.cfg.asset.base_name, self.device)
         self._init_pie_buffers()
-        # Import lazily: CPU lifecycle tests need no Warp initialization.
+        self._init_depth_camera()
+
+    def _init_depth_camera(self):
+        self.camera = None
+        if depth_input_mode(self.cfg.camera) == 'zero' and not self.cfg.camera.render_for_debug:
+            return
+        # A blind policy needs no Warp mesh or camera buffers during training.
         from legged_gym.utils.warp_camera import WarpDepthCamera
         self.camera = WarpDepthCamera(self.atlas, self.num_envs, self.cfg.camera, self.device)
 
@@ -256,6 +262,8 @@ class Lite3PIE(LeggedRobot):
         fill = 0.0 if depth_input_mode(c) == 'zero' else (0.5 if c.normalize else c.far)
         self.depth_history = torch.full((n, c.history, c.height, c.width), fill, device=self.device)
         self.depth_queue = torch.full((n, c.latency_frames + 1, c.height, c.width), fill, device=self.device)
+        # Shared immutable zero image; queues/history still own their copies.
+        self._zero_depth_image = torch.zeros((c.height, c.width), device=self.device).expand(n, -1, -1)
         self.depth_frame_ids = torch.full((n, c.history), -1, device=self.device, dtype=torch.long)
         self.depth_queue_frame_ids = torch.full((n, c.latency_frames + 1), -1,
                                                device=self.device, dtype=torch.long)
@@ -320,19 +328,18 @@ class Lite3PIE(LeggedRobot):
         return torch.cat((proprio, targets['velocity'], targets['heightmap']), -1).clamp(-clip, clip)
 
     def _render_depth(self, ids=None, reset=False):
-        q = self.base_quat
-        self.camera.positions.copy_(self.root_states[:, :3] + quat_rotate(q, self.camera_offsets))
-        pitch = self.camera_pitch / 2
-        cq = torch.stack((torch.zeros_like(pitch), torch.sin(pitch),
-                          torch.zeros_like(pitch), torch.cos(pitch)), -1)
-        self.camera.orientations.copy_(quat_mul(q, cq))
-        self.camera.focal.copy_(self.cfg.camera.width
-                               / (2 * torch.tan(self.camera_fov * (math.pi / 360))))
-        image = self.camera.encode(self.camera.render(ids))
-        if depth_input_mode(self.cfg.camera) == 'zero':
-            # Allocate separately: encode may return a view of camera.depth.
-            # Raw captures stay available to --show_depth, including on reset.
-            image = torch.zeros_like(image)
+        mode = depth_input_mode(self.cfg.camera)
+        if self.camera is not None:
+            q = self.base_quat
+            self.camera.positions.copy_(self.root_states[:, :3] + quat_rotate(q, self.camera_offsets))
+            pitch = self.camera_pitch / 2
+            cq = torch.stack((torch.zeros_like(pitch), torch.sin(pitch),
+                              torch.zeros_like(pitch), torch.cos(pitch)), -1)
+            self.camera.orientations.copy_(quat_mul(q, cq))
+            self.camera.focal.copy_(self.cfg.camera.width
+                                   / (2 * torch.tan(self.camera_fov * (math.pi / 360))))
+            raw = self.camera.render(ids)
+        image = self._zero_depth_image if mode == 'zero' else self.camera.encode(raw)
         self.camera_capture_serial += 1
         captured = self.camera_capture_serial * self.num_envs + torch.arange(self.num_envs, device=self.device)
         if reset:
