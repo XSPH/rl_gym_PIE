@@ -42,7 +42,7 @@ def _model():
     return PIEActorCritic(cfg).cpu()
 
 
-def _sequence(steps=24, count=3, shape=(8, 8)):
+def _sequence(steps=24, count=3, shape=(8, 8), input_mode='depth'):
     """10 Hz images, distinct channels, and asynchronous episode resets."""
     frame_ids = torch.arange(count, dtype=torch.long).repeat(2, 1).t().clone()
     serial = 1
@@ -72,6 +72,8 @@ def _sequence(steps=24, count=3, shape=(8, 8)):
                         "foot_clearance": torch.zeros(count, 4),
                         "heightmap": prop * 0.2},
         })
+        if input_mode == 'zero':
+            observations[-1]['depth'].zero_()
         resets.append(reset)
     return observations, resets
 
@@ -81,8 +83,8 @@ def _legacy(obs):
 
 
 class _RecordedEnvironment:
-    def __init__(self, indexed, steps=24):
-        self.observations, self.resets = _sequence(steps)
+    def __init__(self, indexed, steps=24, input_mode='depth'):
+        self.observations, self.resets = _sequence(steps, input_mode=input_mode)
         self.indexed = indexed
         self.step_index = 0
         self.num_envs, self.num_obs, self.num_privileged_obs, self.num_actions = 3, 3, 4, 2
@@ -113,8 +115,9 @@ class _RecordedEnvironment:
         }
 
 
-def test_frame_pool_reconstructs_both_channels_and_owns_immutable_images():
-    observations, _ = _sequence()
+@pytest.mark.parametrize('input_mode', ['depth', 'zero'])
+def test_frame_pool_reconstructs_both_channels_and_owns_immutable_images(input_mode):
+    observations, _ = _sequence(input_mode=input_mode)
     pool = DepthFramePool()
     stored, expected = [], []
     for obs in observations:
@@ -138,11 +141,12 @@ def test_frame_pool_reconstructs_both_channels_and_owns_immutable_images():
         pool.add(expected[0], torch.arange(3).repeat(2, 1).t())
 
 
-def test_async_visual_reuse_preserves_actions_hidden_probabilities_and_gradients():
+@pytest.mark.parametrize('input_mode', ['depth', 'zero'])
+def test_async_visual_reuse_preserves_actions_hidden_probabilities_and_gradients(input_mode):
     torch.manual_seed(42)
     reference = _model().train()
     cached = deepcopy(reference)
-    observations, resets = _sequence()
+    observations, resets = _sequence(input_mode=input_mode)
     cache = PIEDepthFeatureCache()
     hidden_ref = reference.initial_state(3)
     hidden_cached = cached.initial_state(3)
@@ -168,7 +172,8 @@ def test_async_visual_reuse_preserves_actions_hidden_probabilities_and_gradients
         else:
             torch.testing.assert_close(param_cached.grad, param_ref.grad,
                                        rtol=2e-5, atol=2e-6, msg=name)
-    assert cached.depth_encoder[0].weight.grad.abs().sum() > 0
+    assert (cached.depth_encoder[0].weight.grad.abs().sum() > 0) == (input_mode == 'depth')
+    assert cached.depth_encoder[0].bias.grad.abs().sum() > 0
     assert cached.gru.weight_hh.grad.abs().sum() > 0
     assert cache.encoded_stacks < 24 * 3
     # The recurrent state changes even when every image ID is unchanged.
@@ -177,7 +182,8 @@ def test_async_visual_reuse_preserves_actions_hidden_probabilities_and_gradients
 
 
 @pytest.mark.parametrize("precision", [torch.float32, torch.float64], indirect=True)
-def test_indexed_multi_epoch_ppo_matches_legacy_full_recurrent_updates(precision):
+@pytest.mark.parametrize('input_mode', ['depth', 'zero'])
+def test_indexed_multi_epoch_ppo_matches_legacy_full_recurrent_updates(precision, input_mode):
     torch.manual_seed(51)
     reference_model = _model()
     indexed_model = deepcopy(reference_model)
@@ -186,7 +192,7 @@ def test_indexed_multi_epoch_ppo_matches_legacy_full_recurrent_updates(precision
     indexed = PIEPPO(indexed_model, device="cpu", **cfg)
     batches, finals = [], []
     for algorithm, use_indices in ((plain, False), (indexed, True)):
-        env = _RecordedEnvironment(use_indices)
+        env = _RecordedEnvironment(use_indices, input_mode=input_mode)
         torch.manual_seed(71)
         batch, _ = collect_native(algorithm, env, steps=24)
         batches.append(batch)
@@ -236,7 +242,8 @@ def test_indexed_multi_epoch_ppo_matches_legacy_full_recurrent_updates(precision
                                        msg=name)
     assert reports[1]["cnn_encoded_stacks"] < reports[1]["cnn_dense_stacks"]
     assert reports[0]["cnn_encoded_stacks"] == reports[0]["cnn_dense_stacks"]
-    assert indexed.model.depth_encoder[0].weight.grad.abs().sum() > 0
+    assert (indexed.model.depth_encoder[0].weight.grad.abs().sum() > 0) == (input_mode == 'depth')
+    assert indexed.model.depth_encoder[0].bias.grad.abs().sum() > 0
     assert indexed.model.gru.weight_hh.grad.abs().sum() > 0
 
     # refresh_hidden must use newly updated CNN weights, not collection features.

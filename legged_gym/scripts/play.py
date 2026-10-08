@@ -25,8 +25,8 @@ def play(args):
         env_cfg, source = restore_playback_config(env_cfg, checkpoint)
         update_class_from_dict(train_cfg, checkpoint["train_config"])
         train_cfg.runner.resume = False
-        print("[PIE playback] {}: envs={}, steps={}".format(
-            source, env_cfg.env.num_envs, args.steps), flush=True)
+        print("[PIE playback] {}: envs={}, steps={}, camera.input_mode={}".format(
+            source, env_cfg.env.num_envs, args.steps, env_cfg.camera.input_mode), flush=True)
         del checkpoint
         if args.steps < 1:
             raise ValueError("--steps must be positive")

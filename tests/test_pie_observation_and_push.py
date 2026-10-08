@@ -15,6 +15,7 @@ def sensor():
     classes = load_native_classes()
     task = state(classes.task)
     task.cfg = classes.config()
+    task.cfg.camera.input_mode = 'depth'
     task.cfg.domain_rand.randomize_pie = False
     task.cfg.camera.height = task.cfg.camera.width = 8
     task.cfg.terrain.curriculum = False
@@ -57,7 +58,7 @@ def sensor():
         image[selected] = captured[:, None, None].float()
         return image
     task.camera = NS(positions=torch.zeros(3, 3), orientations=torch.zeros(3, 4),
-                     focal=torch.zeros(3), render=render, encode=lambda values: values)
+                     focal=torch.zeros(3), depth=image, render=render, encode=lambda values: values)
     task._reset_pie_sensors(torch.arange(3))
     task.compute_observations()
     return task

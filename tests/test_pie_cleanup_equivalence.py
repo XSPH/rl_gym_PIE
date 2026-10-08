@@ -1,6 +1,7 @@
 """Compare real task/model behavior with the pre-cleanup commit 09c2122."""
 import hashlib
 import json
+from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -8,7 +9,7 @@ import numpy as np
 import pytest
 import torch
 
-from native_cpu_helpers import load_native_classes
+from native_cpu_helpers import load_native_classes, original_visual_config
 from rsl_rl.modules.actor_critic_pie import PIEActorCritic
 from test_pie_observation_and_push import sensor
 
@@ -16,10 +17,16 @@ from test_pie_observation_and_push import sensor
 BASELINE = json.loads((Path(__file__).parent / 'fixtures/pie_before_cleanup.json').read_text())
 
 
-def test_effective_nested_configuration_matches_previous_values():
+def test_effective_nested_configuration_changes_only_blind_flat_experiment_fields():
     classes = load_native_classes()
     cfg = classes.config()
-    assert classes.helpers.class_to_dict(cfg) == BASELINE['configuration']
+    expected = deepcopy(BASELINE['configuration'])
+    expected['control'].update(stiffness={'joint': 20.0}, damping={'joint': 0.5})
+    expected['camera']['input_mode'] = 'zero'
+    expected['domain_rand']['randomize_camera'] = False
+    expected['terrain'].update(curriculum=False, kinds=['flat'],
+                               terrain_proportions=[1.0], max_init_terrain_level=0)
+    assert classes.helpers.class_to_dict(cfg) == expected
     assert not hasattr(cfg, 'pie')
     train = classes.train_config()
     assert (cfg.env.num_envs, train.runner.num_steps_per_env,
@@ -30,7 +37,7 @@ def test_effective_nested_configuration_matches_previous_values():
 
 def test_mesh_heights_origins_and_triangles_match_previous_seed():
     classes = load_native_classes()
-    terrain = classes.terrain(classes.config().terrain, 4096, seed=4)
+    terrain = classes.terrain(original_visual_config(classes).terrain, 4096, seed=4)
     for name, expected in BASELINE['geometry_seed_4'].items():
         array = np.ascontiguousarray(getattr(terrain, name))
         assert hashlib.sha256(array.tobytes()).hexdigest() == expected, name

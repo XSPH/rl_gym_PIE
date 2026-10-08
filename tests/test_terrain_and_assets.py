@@ -4,13 +4,13 @@ import numpy as np
 import torch
 
 from pathlib import Path
-from native_cpu_helpers import load_native_classes
+from native_cpu_helpers import load_native_classes, original_visual_config
 from test_native_environment import state
 
 
 def test_native_grid_plateau_collision_vertices_and_labels_agree():
     classes = load_native_classes()
-    cfg = classes.config()
+    cfg = original_visual_config(classes)
     terrain = classes.terrain(cfg.terrain, 4096, seed=4)
     atlas = terrain.atlas
     assert atlas.triangles.max() < len(atlas.vertices)
@@ -40,7 +40,7 @@ def test_native_grid_plateau_collision_vertices_and_labels_agree():
 
 def test_mesh_faces_cover_surface_and_only_exposed_cliffs_with_outward_normals():
     classes = load_native_classes()
-    cfg = classes.config()
+    cfg = original_visual_config(classes)
     terrain = classes.terrain(cfg.terrain, 4096, seed=4)
     vertices, triangles, heights = terrain.vertices, terrain.triangles, terrain.height_field_raw
     normals = np.cross(vertices[triangles[:, 1]] - vertices[triangles[:, 0]],

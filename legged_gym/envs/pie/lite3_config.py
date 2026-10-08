@@ -38,8 +38,8 @@ class Lite3PIECfg(LeggedRobotCfg):
                                 for joint, angle in (('HipX', 0.0), ('HipY', -0.8), ('Knee', 1.6))}
 
     class control(LeggedRobotCfg.control):
-        stiffness = {'joint': 30.0}
-        damping = {'joint': 0.8}
+        stiffness = {'joint': 20.0}
+        damping = {'joint': 0.5}
         action_scale = 0.25
         decimation = 4
         control_type = 'P'
@@ -57,14 +57,14 @@ class Lite3PIECfg(LeggedRobotCfg):
 
     class terrain(LeggedRobotCfg.terrain):
         mesh_type = 'trimesh'
-        curriculum = True
+        curriculum = False
         num_rows = 10
         num_cols = 20
         terrain_length = 8.0
         terrain_width = 8.0
-        terrain_proportions = [0.2] * 5
-        max_init_terrain_level = 5
-        kinds = ['flat', 'gap', 'step', 'hurdle', 'stairs']
+        terrain_proportions = [1.0]
+        max_init_terrain_level = 0
+        kinds = ['flat']
         max_gap = 1.0
         max_step = 0.75
         max_hurdle = 0.75
@@ -77,6 +77,7 @@ class Lite3PIECfg(LeggedRobotCfg):
         randomize_base_mass = True
         added_mass_range = [-1.0, 2.0]
         randomize_pie = True
+        randomize_camera = False
         com_shift = 0.05
         gain_factor = [0.9, 1.1]
         motor_factor = [0.9, 1.1]
@@ -86,6 +87,8 @@ class Lite3PIECfg(LeggedRobotCfg):
         camera_hfov_degrees = [86.0, 88.0]
 
     class camera:
+        # Render real depth for diagnostics; zero only the encoded policy input.
+        input_mode = 'zero'  # 'depth' or 'zero'
         height = 60
         width = 80
         history = 2
@@ -144,7 +147,8 @@ class Lite3PIECfgPPO(LeggedRobotCfgPPO):
     class runner(LeggedRobotCfgPPO.runner):
         policy_class_name = 'PIEActorCritic'
         algorithm_class_name = 'PIEPPO'
-        experiment_name = 'lite3_pie_native'
+        experiment_name = 'lite3_pie_blind_flat'
+        resume = False
         num_steps_per_env = 24
         max_iterations = 15000
         save_interval = 500

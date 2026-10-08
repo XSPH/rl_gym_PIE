@@ -7,6 +7,7 @@ import numpy as np
 import torch
 from .on_policy_runner import OnPolicyRunner
 from rsl_rl.modules.actor_critic_pie import ModelConfig
+from rsl_rl.utils.pie_config import depth_input_mode
 
 
 def plain_config(value):
@@ -193,6 +194,11 @@ class PIEOnPolicyRunner(OnPolicyRunner):
         saved = torch.load(path, map_location=self.device, weights_only=True)
         if saved.get("pie_checkpoint_version") != 4 or saved.get("rsl_rl_base") != "v1.0.2":
             raise ValueError("This branch accepts only native PIE version-4 checkpoints")
+        saved_mode = depth_input_mode(saved.get('environment_cfg', {}).get('camera', {}))
+        current_mode = depth_input_mode(getattr(getattr(self.env, 'cfg', None), 'camera', {}))
+        if saved_mode != current_mode:
+            raise ValueError("Checkpoint camera.input_mode {!r} does not match this task's {!r}".format(
+                saved_mode, current_mode))
         stored_config, current_config = asdict(ModelConfig(**saved["model_config"])), asdict(self.model_cfg)
         stored_config.pop("initial_std")
         current_config.pop("initial_std")

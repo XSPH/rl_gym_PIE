@@ -52,6 +52,19 @@ def class_to_dict(value):
             if not key.startswith("_") and not callable(getattr(value, key))}
 
 
+def original_visual_config(classes):
+    """Explicit pre-experiment settings for original visual/terrain regressions."""
+    cfg = classes.config()
+    cfg.camera.input_mode = 'depth'
+    cfg.domain_rand.randomize_camera = True
+    cfg.control.stiffness, cfg.control.damping = {'joint': 30.0}, {'joint': 0.8}
+    cfg.terrain.curriculum = True
+    cfg.terrain.kinds = ['flat', 'gap', 'step', 'hurdle', 'stairs']
+    cfg.terrain.terrain_proportions = [0.2] * 5
+    cfg.terrain.max_init_terrain_level = 5
+    return cfg
+
+
 def load_native_classes():
     """Return task/config classes while keeping fake imports local to this call."""
     gymapi = module("isaacgym.gymapi", UP_AXIS_Z=2, DOMAIN_SIM=0,

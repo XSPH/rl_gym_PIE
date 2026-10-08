@@ -1,11 +1,14 @@
-# Lite3 PIE：原版训练流程分支
+# Lite3 PIE：平地盲狗实验分支
 
-分支：`refactor/pie-native-training`。本分支以 Unitree RL Gym 和随项目保存的
-rsl_rl **v1.0.2** 实现 PIE，从头训练，仅加载本分支的 version-4 模型。
+分支：`experiment/pie-blind-flat`，从 `025907a` 创建。本分支以 Unitree RL Gym 和随项目保存的
+rsl_rl **v1.0.2** 实现 PIE，在全平地上从第 0 轮随机初始化训练，策略深度恒为全零，
+名义 PD 为 20/0.5。CNN、Transformer、GRU、全部辅助头/损失与 Critic 特权观测保留。
+奖励、命令和非视觉随机化沿用起点配置；视觉随机化关闭。仅加载 version-4 模型，
+续训必须匹配视觉模式。实验改动和 CPU 验证见 [盲狗实验记录](docs/pie_blind_flat.md)。
 网络参数来源见 [PIE_NETWORK.md](PIE_NETWORK.md)，改动与验证边界见
 [训练流程记录](docs/native_training_refactor.md)与 [模块收拢记录](docs/pie_module_cleanup.md)。
-GitHub 部署和真实 GPU 短测试见 [4090 验证记录](docs/native_4090_validation_2026-10-04.md)。
-旧审查文档记录历史版本，不是本分支的运行证据。
+原训练分支的 GitHub 部署和真实 GPU 短测试见 [4090 验证记录](docs/native_4090_validation_2026-10-04.md)。
+这些历史结果不作为盲狗实验的 GPU 验证证据。本次只做本地开发和 CPU 检查。
 
 ## 专用环境
 
@@ -39,7 +42,7 @@ python -s legged_gym/scripts/train.py --task=lite3_pie --headless
 默认 4096 个环境，24 步 rollout，5 epochs，4 minibatches，学习率
 1e-3、adaptive、目标 KL 0.01，初始 action std 为 1.0。
 训练总目标 15000 轮，每完成 500 轮保存一次，默认输出到
-`logs/lite3_pie_native/<时间>_<run_name>/`。
+`logs/lite3_pie_blind_flat/<时间>_<run_name>/`，默认 `resume=False`。
 
 本分支模型续训可直接给出文件：
 
@@ -50,6 +53,8 @@ python -s legged_gym/scripts/train.py --task=lite3_pie --headless \
 
 恢复模型、Adam、学习率和累计轮数，仿真回合与 GRU 记忆重新开始。
 加载第 500 轮后，默认再训练 14500 轮。version 1/2/3 与未知格式均明确拒绝。
+仅使用该实验的 `zero` checkpoint 续训；旧视觉 checkpoint 缺少 `camera.input_mode`
+时解释为 `depth`，在本分支默认配置下会报视觉模式不匹配，权重和优化器都不会加载。
 version 4 保存统一环境配置、有效网络和训练配置、优化器、当前学习率、累计轮数、
 时间/步数及 PyTorch/CUDA 随机状态；仿真器、相机队列和 GRU 不作为状态快照保存。
 
@@ -64,19 +69,20 @@ python -s legged_gym/scripts/play.py --task=lite3_pie \
 回放从模型恢复环境与网络配置，关闭噪声、随机推扰及课程升级。
 策略仍通过原版 `env.step()` 执行，回合结束后清除对应机器人的 GRU 状态；
 前五次重置打印 `[PIE reset]` 原因。
-原版按环境编号分配地形列，单环境默认落在平地列；需要同时观察五类地形时使用
-`--num_envs 5`。这属于回放环境数量选择，不改变训练配置。
+盲狗实验保存的所有地形列均为平地。play 自动从 checkpoint 恢复 `depth` 或 `zero`
+模式，旧版 v4 模型仍恢复原视觉行为；回放旧模型时可用 `--num_envs 5` 观察五类地形。
 
 回放时增加 `--show_depth`，可同时打开机器人深度窗口：
 
 ```bash
 python -s legged_gym/scripts/play.py --task=lite3_pie \
-  --checkpoint_file /absolute/path/model_500.pt --num_envs 5 --steps 5000 \
+  --checkpoint_file /absolute/path/model_500.pt --num_envs 1 --steps 5000 \
   --show_depth --depth_env 0
 ```
 
-窗口并排显示最新采集帧、策略历史的较旧帧和最新帧；均按实际相机 near/far
-范围显示为米，近处红、远处蓝，归一化策略输入会还原为米。
+窗口并排显示最新真实采集帧、策略历史的较旧帧和最新帧。真实采集帧按米显示；
+策略历史直接显示送入网络的数值，归一化输入标注 `normalized input`，使用独立色标。
+盲狗策略历史全零，标注 `zero mode`；零值不代表真实距离。
 窗口内用左右方向键或 `P/N` 切换机器人，`Esc/Q` 或关闭按钮只关闭深度窗口。
 默认选择编号 0；`--depth_env` 可指定初始编号。
 显示只读取当前缓冲，不额外捕获、推进相机队列或更改模型输入，刷新上限跟随
@@ -107,7 +113,10 @@ rsl_rl/rsl_rl/
 ```
 
 配置直接修改 `Lite3PIECfg` 的嵌套类。URDF 唯一入口为 `asset.file`。
-`domain_rand.randomize_pie` 控制 COM、增益、电机、动作延迟和相机安装随机化；
+`domain_rand.randomize_pie` 控制 COM、增益、电机、动作延迟；
+独立的 `domain_rand.randomize_camera` 控制相机安装位置、俯角和 FOV，默认关闭。
+`camera.input_mode` 支持 `zero`（本分支默认）和 `depth`，非法值初始化时报错。
+相机继续渲染和编码；`zero` 模式在写入历史/固定延迟缓冲前归零。
 原版摩擦、附加质量和推扰由各自开关控制。正式规模仍为 4096/24/5/4/15000/500。
 
 `train.py → task_registry → OnPolicyRunner.learn → PPO.act → LeggedRobot.step`
@@ -118,7 +127,7 @@ rsl_rl/rsl_rl/
 - `get_pie_observations()` 提供本体历史、深度帧与索引；`extras['pie']` 提供重置前标签和诊断。
 - 原版 runner 的采样/记账/日志流程与 PPO 的损失、KL 调度、优化器和 GAE 复用；PIE 扩展 recurrent 多模态批次及辅助损失。
 - 本体 10 帧、深度 2 帧经 MLP/CNN → Transformer → GRU，估计速度、四足离地高度、地图潜变量及 VAE 潜变量。Actor 不读取特权真值。
-- 相机跟随 torso 根位姿，保留安装位姿、10 Hz 捕获、100 ms 固定延迟、50 Hz 控制；深度无额外噪声/滤波。
+- 相机跟随 torso 根位姿，固定安装位置 `[0.25,0,0.06]`、俯角 30°、FOV 87°；保留 10 Hz 捕获、100 ms 固定延迟、50 Hz 控制，深度噪声及椒盐噪声为 0。
 - 射线当前只查询静态地形，不包含机器人自身或其他动态物体的遮挡。
 - 图像帧池保存唯一 FP32 图像，控制步存索引；同一次逻辑 minibatch 内复用 CNN 计算图，保留梯度及当前激活重算。未启用梯度累积。
 
@@ -143,10 +152,8 @@ rsl_rl/rsl_rl/
 | smoothness | -0.01 |
 
 地形采用原版 Terrain 网格：10 行、20 列、8×8 米地块、中心出生点，
-五类等比例的平地/沟壑/高台/障碍/楼梯。障碍上限保留沟壑 1 米、
-高台/障碍 0.75 米、楼梯单阶 0.25 米。Warp 和 PhysX 共用最终网格。
-使用 legged_gym 距离课程，初始化最高等级为 5；删除旧窄赛道侧边越界和固定 x 终点重置。
-地形等级是距离课程的统计，不等同于全部障碍成功率。
+全部地块使用 `kinds=['flat']`、比例 `[1.0]`，关闭地形课程，初始等级为 0。
+Warp 和 PhysX 共用最终网格。盲狗实验没有沟壑、高台、障碍或楼梯。
 
 原版命令采样，`heading_command=False`：前向 `[0,1.5]` m/s、侧向 0、
 偏航角速度 `[-1.2,1.2]` rad/s，每 10 秒重采样。保留原版小速度归零逻辑。
@@ -163,9 +170,9 @@ rsl_rl/rsl_rl/
 
 ```bash
 PYTHONNOUSERSITE=1 PYTHONDONTWRITEBYTECODE=1 CUDA_VISIBLE_DEVICES='' \
-  python -s -m pytest -q tests --basetemp=/tmp/pie-native-tests
+  MPLCONFIGDIR=/tmp/pie-blind-flat-mpl \
+  python -s -m pytest -q tests --basetemp=/tmp/pie-blind-flat-tests
 ```
 
-本分支已在 4090 上完成 GPU 后端检查、4096 环境两轮训练、续训一轮和单环境
-200 步回放；时间及显存见 [4090 验证记录](docs/native_4090_validation_2026-10-04.md)。
-长期训练稳定性、收敛和行走/跑酷效果仍待验证。
+本次没有启动 Isaac Gym 仿真、GPU 检查、正式训练或真实回放，没有推送 GitHub 或同步 4090。
+CPU 检查只确认数据流、网络更新与恢复逻辑；基础运动是否学会需后续训练和回放判断。

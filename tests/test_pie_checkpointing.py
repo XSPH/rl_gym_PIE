@@ -153,6 +153,7 @@ def test_schema4_records_unified_config_effective_lr_and_restores_rng(tmp_path):
     assert saved['cuda_rng'] == []  # This test runs with CUDA disabled.
     expected = torch.rand(10)
     resumed = runner()
+    resumed.env.cfg = classes.config()
     resumed.load(checkpoint)
     torch.testing.assert_close(torch.rand(10), expected, rtol=0, atol=0)
     assert resumed.alg.learning_rate == .0007

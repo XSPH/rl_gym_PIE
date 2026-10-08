@@ -72,6 +72,12 @@ Each optimizer step gets a new cache. Non-reentrant CNN activation checkpointing
 is retained. There is no image quantization, frozen rollout-feature replacement,
 or gradient accumulation.
 
+The blind-flat experiment uses `camera.input_mode='zero'`: the task replaces
+encoded images with zeros before writing the history/latency buffers. The raw
+camera still captures; frame IDs, frame pooling, and feature reuse stay active.
+CNN parameters remain in Adam. With zero input, the first convolution's weight
+gradient is zero, while its bias and deeper network parameters can train.
+
 ## Logging, checkpoints, and validation
 
 The original console/TensorBoard reward logging stays in the native runner.
@@ -91,6 +97,11 @@ explicitly rejected. Playback can construct a one-environment runner while retai
 the saved four-minibatch training settings; actual training checks that its env
 count can supply every minibatch. Resuming restores optimizer/LR/counters; simulation episodes
 and GRU state restart, as in native RSL-RL resume.
+The environment snapshot includes `camera.input_mode` and the independent
+`domain_rand.randomize_camera` switch. Loading checks the saved input mode before
+touching weights or Adam, including inference loads. Existing v4 checkpoints
+without the input-mode field are interpreted as `depth`. Playback restores the
+saved mode and disables both actuator and camera randomization.
 
 CPU checks exercise native runner ordering, default stock PPO behavior,
 actor privacy, timeout bootstrap, recurrent resets/replay, joint gradients,

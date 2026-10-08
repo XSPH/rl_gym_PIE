@@ -233,6 +233,7 @@ def _restore_fields(destination, values, path=""):
 
 
 def restore_playback_config(env_cfg, checkpoint):
+    from rsl_rl.utils.pie_config import depth_input_mode
     if checkpoint.get("pie_checkpoint_version") != 4:
         raise ValueError("This branch requires a native PIE version-4 checkpoint; "
                          "old PIE models are not supported")
@@ -246,6 +247,9 @@ def restore_playback_config(env_cfg, checkpoint):
     if "seed" in environment and not hasattr(cfg, "seed"):
         cfg.seed = environment["seed"]
     _restore_fields(cfg, environment)
+    # Existing v4 models predate these fields; never inherit this branch's
+    # blind default when playing a model trained with real depth.
+    cfg.camera.input_mode = depth_input_mode(environment.get('camera', {}))
     cfg.env.num_envs = runtime_count
     # A moved checkout uses its own bundled asset. Explicit robot URDFs are
     # still validated by the environment constructor.
@@ -258,4 +262,5 @@ def restore_playback_config(env_cfg, checkpoint):
     cfg.domain_rand.push_robots = False
     cfg.terrain.curriculum = False
     cfg.domain_rand.randomize_pie = False
+    cfg.domain_rand.randomize_camera = False
     return cfg, "native PIE checkpoint configuration (version 4)"

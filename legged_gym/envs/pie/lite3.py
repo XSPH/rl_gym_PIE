@@ -11,6 +11,7 @@ from legged_gym.envs.base.legged_robot import LeggedRobot
 from legged_gym.utils.terrain import PIETerrain, TerrainSampler
 from legged_gym.utils.kinematics import UrdfKinematics
 from legged_gym.utils.math import quat_yaw
+from rsl_rl.utils.pie_config import depth_input_mode
 
 
 class Lite3PIE(LeggedRobot):
@@ -51,6 +52,7 @@ class Lite3PIE(LeggedRobot):
         if cfg.control.decimation < 1 or sim_params.dt <= 0 or cfg.env.proprio_history < 1:
             raise ValueError("Invalid simulation timing or proprio history.")
         r, c, terrain = cfg.domain_rand, cfg.camera, cfg.terrain
+        depth_input_mode(c)
         if r.max_delay_seconds < 0:
             raise ValueError("Action delay must be nonnegative.")
         for name in ("friction_range", "added_mass_range", "gain_factor", "motor_factor",
@@ -251,7 +253,7 @@ class Lite3PIE(LeggedRobot):
         self.gym.refresh_rigid_body_state_tensor(self.sim)
         self.last_last_actions = torch.zeros_like(self.actions)
         self.proprio_history = torch.zeros((n, self.cfg.env.proprio_history, self.num_obs), device=self.device)
-        fill = 0.5 if c.normalize else c.far
+        fill = 0.0 if depth_input_mode(c) == 'zero' else (0.5 if c.normalize else c.far)
         self.depth_history = torch.full((n, c.history, c.height, c.width), fill, device=self.device)
         self.depth_queue = torch.full((n, c.latency_frames + 1, c.height, c.width), fill, device=self.device)
         self.depth_frame_ids = torch.full((n, c.history), -1, device=self.device, dtype=torch.long)
@@ -327,6 +329,10 @@ class Lite3PIE(LeggedRobot):
         self.camera.focal.copy_(self.cfg.camera.width
                                / (2 * torch.tan(self.camera_fov * (math.pi / 360))))
         image = self.camera.encode(self.camera.render(ids))
+        if depth_input_mode(self.cfg.camera) == 'zero':
+            # Allocate separately: encode may return a view of camera.depth.
+            # Raw captures stay available to --show_depth, including on reset.
+            image = torch.zeros_like(image)
         self.camera_capture_serial += 1
         captured = self.camera_capture_serial * self.num_envs + torch.arange(self.num_envs, device=self.device)
         if reset:
@@ -357,13 +363,15 @@ class Lite3PIE(LeggedRobot):
             self.kd_factors[ids] = self._uniform((count, self.num_actions), r.gain_factor)
             self.motor_factors[ids] = self._uniform((count, self.num_actions), r.motor_factor)
             self.delay_steps[ids] = torch.randint(self.action_queue.shape[1], (count,), device=self.device)
+        else:
+            self.kp_factors[ids] = self.kd_factors[ids] = self.motor_factors[ids] = 1
+            self.delay_steps[ids] = 0
+        if r.randomize_camera:
             self.camera_offsets[ids] = torch.tensor(c.position, device=self.device) + self._uniform((count, 3), [-r.camera_position, r.camera_position])
             delta = math.radians(r.camera_pitch_degrees)
             self.camera_pitch[ids] = math.radians(c.pitch_degrees) + self._uniform((count,), [-delta, delta])
             self.camera_fov[ids] = self._uniform((count,), r.camera_hfov_degrees)
         else:
-            self.kp_factors[ids] = self.kd_factors[ids] = self.motor_factors[ids] = 1
-            self.delay_steps[ids] = 0
             self.camera_offsets[ids] = torch.tensor(c.position, device=self.device)
             self.camera_pitch[ids] = math.radians(c.pitch_degrees)
             self.camera_fov[ids] = c.hfov_degrees
