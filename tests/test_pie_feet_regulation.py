@@ -10,8 +10,9 @@ from test_pie_observation_and_push import sensor
 
 
 def feet_state(task, height=0.0, speed=1.0):
+    """Place sphere centers for the requested sole-to-ground clearance."""
     task.rigid_body_states[:, task.foot_indices, :] = 0
-    task.rigid_body_states[:, task.foot_indices, 2] = height
+    task.rigid_body_states[:, task.foot_indices, 2] = height + task.cfg.asset.foot_radius
     task.rigid_body_states[:, task.foot_indices, 7] = speed
 
 
@@ -32,6 +33,15 @@ def test_penalty_decreases_with_clearance_and_scales_quadratically_with_horizont
     feet_state(sensor, height=-.01)
     torch.testing.assert_close(sensor._reward_feet_regulation(), low)
     assert torch.isfinite(sensor._reward_feet_regulation()).all()
+
+
+def test_grounded_foot_center_gives_zero_clearance_consistent_with_auxiliary_target(sensor):
+    feet_state(sensor, speed=1.)
+    torch.testing.assert_close(
+        sensor.rigid_body_states[:, sensor.foot_indices, 2],
+        torch.full((3, 4), sensor.cfg.asset.foot_radius))
+    assert torch.count_nonzero(sensor._terrain_targets()['foot_clearance']) == 0
+    torch.testing.assert_close(sensor._reward_feet_regulation(), torch.full((3,), 4.))
 
 
 def test_penalty_uses_each_foot_local_ground_and_is_independent_of_base_pose_and_camera(sensor):

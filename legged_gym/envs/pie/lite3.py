@@ -441,7 +441,9 @@ class Lite3PIE(LeggedRobot):
         self.gym.refresh_rigid_body_state_tensor(self.sim)
         feet = self.rigid_body_states[:, self.foot_indices]
         feet_pos = feet[..., :3]
-        feet_height = (feet_pos[..., 2] - self.terrain_sampler.sample(feet_pos)).clamp_min(0.0)
-        # Keep the CTS foot-origin convention; do not subtract foot_radius.
+        # The rigid-body origin is the foot sphere's center. Use sole clearance,
+        # consistent with the foot_clearance auxiliary target.
+        feet_height = (feet_pos[..., 2] - self.terrain_sampler.sample(feet_pos)
+                       - self.cfg.asset.foot_radius).clamp_min(0.0)
         height_scale = 0.025 * self.cfg.rewards.base_height_target
         return (feet[..., 7:9].square().sum(-1) * torch.exp(-feet_height / height_scale)).sum(-1)

@@ -247,9 +247,6 @@ def restore_playback_config(env_cfg, checkpoint, show_depth=False):
     if "seed" in environment and not hasattr(cfg, "seed"):
         cfg.seed = environment["seed"]
     _restore_fields(cfg, environment)
-    # New shaping must not change rewards when replaying an older model.
-    saved_scales = environment.get('rewards', {}).get('scales', {})
-    cfg.rewards.scales.feet_regulation = saved_scales.get('feet_regulation', 0.0)
     # Existing v4 models predate these fields; never inherit this branch's
     # blind default when playing a model trained with real depth.
     cfg.camera.input_mode = depth_input_mode(environment.get('camera', {}))

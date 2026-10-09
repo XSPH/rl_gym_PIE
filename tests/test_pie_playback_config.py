@@ -50,17 +50,6 @@ def test_playback_disables_randomization_without_changing_saved_reward_scales():
     assert class_to_dict(training) == snapshot
 
 
-def test_old_checkpoint_does_not_inherit_new_feet_regulation_default():
-    classes = load_native_classes()
-    training = classes.config()
-    snapshot = class_to_dict(training)
-    del snapshot['rewards']['scales']['feet_regulation']
-    restored, _ = restore_playback_config(training, {
-        'pie_checkpoint_version': 4, 'environment_cfg': snapshot})
-    assert restored.rewards.scales.feet_regulation == 0.0
-    assert training.rewards.scales.feet_regulation == -.05
-
-
 @pytest.mark.parametrize("version", [None, 1, 2, 3, 5])
 def test_old_or_unknown_checkpoint_schema_is_rejected(version):
     classes = load_native_classes()
