@@ -26,6 +26,9 @@ def sensor():
     task.terrain_levels = task.terrain_types = torch.zeros(3, dtype=torch.long)
     task.joint_order = torch.arange(12)
     task.inverse_joint_order = task.joint_order.clone()
+    task.hip_dof_indices = torch.tensor([
+        index for index, name in enumerate(task.cfg.asset.joint_names)
+        if name.endswith('HipX_joint')])
     task.default_dof_pos = torch.tensor([[task.cfg.init_state.default_joint_angles[name] for name in task.cfg.asset.joint_names]])
     task.dof_pos[:] = task.default_dof_pos
     task.root_states[:, 2] = .3

@@ -140,7 +140,7 @@ play 的 `--show_depth` 设置 `camera.render_for_debug=True`，启用真实相�
 
 奖励由原版 `_prepare_reward_function()` 注册、`compute_reward()` 计算，
 权重唯一来源是 `Lite3PIECfg.rewards.scales`。原版已有奖励函数直接复用，
-只新增 `joint_power` 和 `smoothness` 两项函数。所有项按控制 `dt` 缩放一次，
+额外函数包括 `joint_power`、`smoothness`、`hip_default` 和 `feet_regulation`。所有项按控制 `dt` 缩放一次，
 沿用当前实验的 `only_positive_rewards=False`、目标机身高度 `0.3` 米和初始高度 `0.31` 米。
 
 | 奖励配置名 | 权重 |
@@ -157,6 +157,16 @@ play 的 `--show_depth` 设置 `camera.render_for_debug=True`，启用真实相�
 | smoothness | -0.01 |
 | torques | -1e-4 |
 | base_height | -1 |
+| hip_default | -0.5 |
+| feet_regulation | -0.05 |
+
+`feet_regulation` 使用 [CTS 论文式 (9)](https://arxiv.org/html/2405.10830v2#S3.SS1)：
+各脚水平世界速度的平方乘以 `exp(-脚离地高度 / (0.025 * base_height_target))` 后求和，
+由负权重惩罚贴地快速运动。奖励计算前刷新刚体状态，脚高度用 PIE 地形采样器查询
+每只脚当前位置的地面。沿用 Go2 源函数的足端刚体原点高度，不减 `foot_radius`；
+避免用机身下方地面近似台阶上的脚高度，也不混用世界位移和机身坐标重力。
+本项使用训练环境真实状态，不读取相机或网络足高预测。旧 checkpoint 回放时，
+如果保存配置缺少此项，其权重恢复为 0；新模型按保存的权重恢复。
 
 地形采用原版 Terrain 网格：10 行、20 列、8×8 米地块、中心出生点，
 全部地块使用 `kinds=['flat']`、比例 `[1.0]`，关闭地形课程，初始等级为 0。

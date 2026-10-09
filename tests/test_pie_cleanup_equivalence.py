@@ -31,7 +31,8 @@ def test_effective_configuration_preserves_current_blind_flat_experiment():
     expected['init_state']['pos'][2] = .31
     expected['rewards'].update(only_positive_rewards=False, base_height_target=.3,
                                soft_dof_pos_limit=.9)
-    expected['rewards']['scales'].update(torques=-1e-4, base_height=-1.)
+    expected['rewards']['scales'].update(torques=-1e-4, base_height=-1.,
+                                        hip_default=-.5, feet_regulation=-.05)
     assert classes.helpers.class_to_dict(cfg) == expected
     assert not hasattr(cfg, 'pie')
     train = classes.train_config()

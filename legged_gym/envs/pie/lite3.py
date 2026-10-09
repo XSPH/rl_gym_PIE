@@ -72,6 +72,10 @@ class Lite3PIE(LeggedRobot):
             raise ValueError("Unsupported terrain kinds.")
         if not terrain.measured_points_x or not terrain.measured_points_y:
             raise ValueError("Height scan cannot be empty.")
+        if (cfg.rewards.scales.feet_regulation != 0
+                and (not math.isfinite(cfg.rewards.base_height_target)
+                     or cfg.rewards.base_height_target <= 0)):
+            raise ValueError("feet_regulation requires a positive, finite base_height_target.")
 
     def _create_ground_plane(self):
         # Unitree's base create_sim calls this hook even for non-plane tasks.
@@ -244,18 +248,6 @@ class Lite3PIE(LeggedRobot):
                              torch.randint_like(levels, self.cfg.terrain.num_rows), levels.clamp_min(0))
         self.terrain_levels[ids] = levels
         self.env_origins[ids] = self.terrain_origins[levels, self.terrain_types[ids]]
-
-    def _reward_joint_power(self):
-        return (self.torques.abs() * self.dof_vel.abs()).sum(-1)
-
-    def _reward_smoothness(self):
-        return (self.actions - 2 * self.last_actions + self.last_last_actions).square().sum(-1)
-
-    def _reward_hip_default(self):
-        hip_pos = self.dof_pos[:, self.hip_dof_indices]
-        default_hip_pos = self.default_dof_pos[:, self.hip_dof_indices]
-        return torch.sum(torch.abs(hip_pos - default_hip_pos), dim=1)
-    
 
     @property
     def action_dim(self):
@@ -430,3 +422,26 @@ class Lite3PIE(LeggedRobot):
 
     def __exit__(self, *args):
         self.close()
+
+    def _reward_joint_power(self):
+        return (self.torques.abs() * self.dof_vel.abs()).sum(-1)
+
+    def _reward_smoothness(self):
+        return (self.actions - 2 * self.last_actions + self.last_last_actions).square().sum(-1)
+
+    def _reward_hip_default(self):
+        hip_pos = self.dof_pos[:, self.hip_dof_indices]
+        default_hip_pos = self.default_dof_pos[:, self.hip_dof_indices]
+        return torch.sum(torch.abs(hip_pos - default_hip_pos), dim=1)
+
+    def _reward_feet_regulation(self):
+        """CTS Eq. (9): penalize fast horizontal foot motion near the ground."""
+        # Native rewards run before _before_reset(), which normally refreshes
+        # this tensor. Read current-step foot positions and world velocities.
+        self.gym.refresh_rigid_body_state_tensor(self.sim)
+        feet = self.rigid_body_states[:, self.foot_indices]
+        feet_pos = feet[..., :3]
+        feet_height = (feet_pos[..., 2] - self.terrain_sampler.sample(feet_pos)).clamp_min(0.0)
+        # Keep the CTS foot-origin convention; do not subtract foot_radius.
+        height_scale = 0.025 * self.cfg.rewards.base_height_target
+        return (feet[..., 7:9].square().sum(-1) * torch.exp(-feet_height / height_scale)).sum(-1)

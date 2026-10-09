@@ -146,6 +146,7 @@ def test_current_experiment_reward_terms_and_base_physx_are_preserved(classes):
     assert nonzero == {"tracking_lin_vel": 1.5, "tracking_ang_vel": .5,
         "lin_vel_z": -1., "ang_vel_xy": -.05, "orientation": -1.,
         "dof_acc": -2.5e-7, "joint_power": -2e-5, "collision": -10.,
-        "action_rate": -.01, "smoothness": -.01, "torques": -1e-4, "base_height": -1.}
+        "action_rate": -.01, "smoothness": -.01, "torques": -1e-4, "base_height": -1.,
+        "hip_default": -.5, "feet_regulation": -.05}
     base_cfg = classes.base.__init__.__annotations__["cfg"]()
     assert class_to_dict(cfg.sim.physx) == class_to_dict(base_cfg.sim.physx)
