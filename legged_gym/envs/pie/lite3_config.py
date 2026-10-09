@@ -122,6 +122,7 @@ class Lite3PIECfg(LeggedRobotCfg):
             torques = -1e-4
             dof_vel = 0.0
             base_height = -1.
+            hip_default = -0.5
             feet_air_time = 0.0
             feet_stumble = 0.0
             stand_still = 0.0

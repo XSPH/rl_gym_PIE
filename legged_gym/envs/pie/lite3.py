@@ -117,6 +117,9 @@ class Lite3PIE(LeggedRobot):
         self.inverse_joint_order = torch.argsort(self.joint_order)
         self.foot_indices = torch.tensor([self.body_names.index(name) for name in self.cfg.asset.foot_names],
                                         device=self.device, dtype=torch.long)
+        self.hip_dof_indices = torch.tensor(
+            [self.dof_names.index(name) for name in self.cfg.asset.joint_names
+             if name.endswith('HipX_joint')], device=self.device, dtype=torch.long)
         self.fk = UrdfKinematics(self.urdf, self.cfg.asset.joint_names,
                                 self.cfg.asset.base_name, self.device)
         self._init_pie_buffers()
@@ -247,6 +250,12 @@ class Lite3PIE(LeggedRobot):
 
     def _reward_smoothness(self):
         return (self.actions - 2 * self.last_actions + self.last_last_actions).square().sum(-1)
+
+    def _reward_hip_default(self):
+        hip_pos = self.dof_pos[:, self.hip_dof_indices]
+        default_hip_pos = self.default_dof_pos[:, self.hip_dof_indices]
+        return torch.sum(torch.abs(hip_pos - default_hip_pos), dim=1)
+    
 
     @property
     def action_dim(self):
