@@ -32,7 +32,7 @@ class Lite3PIECfg(LeggedRobotCfg):
         default_dof_drive_mode = 3
 
     class init_state(LeggedRobotCfg.init_state):
-        pos = [0.0, 0.0, 0.30]
+        pos = [0.0, 0.0, 0.31]
         default_joint_angles = {leg + '_' + joint + '_joint': angle
                                 for leg in ('FL', 'FR', 'HL', 'HR')
                                 for joint, angle in (('HipX', 0.0), ('HipY', -0.8), ('Knee', 1.6))}
@@ -106,7 +106,8 @@ class Lite3PIECfg(LeggedRobotCfg):
         normalize = True
 
     class rewards(LeggedRobotCfg.rewards):
-        soft_dof_pos_limit = 1.0
+        soft_dof_pos_limit = 0.9
+        base_height_target = 0.3
 
         class scales(LeggedRobotCfg.rewards.scales):
             tracking_lin_vel = 1.5
