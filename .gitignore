@@ -71,6 +71,9 @@ instance/
 # Sphinx documentation
 docs/_build/
 
+# Keep local project documentation out of commits.
+/docs/
+
 # PyBuilder
 .pybuilder/
 target/
