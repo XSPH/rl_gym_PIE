@@ -16,7 +16,7 @@ def test_native_checkpoint_restores_training_units_and_keeps_runtime_env_count()
     saved.normalization.obs_scales.lin_vel = 3.
     saved.normalization.obs_scales.ang_vel = .5
     saved.normalization.clip_observations = 50.
-    saved.rewards.only_positive_rewards = False
+    saved.rewards.only_positive_rewards = True
     saved.camera.pitch_degrees = 28.
     cfg, source = restore_playback_config(training, {
         "pie_checkpoint_version": 4, "environment_cfg": class_to_dict(saved)})
@@ -26,11 +26,11 @@ def test_native_checkpoint_restores_training_units_and_keeps_runtime_env_count()
     assert cfg.normalization.obs_scales.lin_vel == 3.
     assert cfg.normalization.obs_scales.ang_vel == .5
     assert cfg.normalization.clip_observations == 50.
-    assert not cfg.rewards.only_positive_rewards
+    assert cfg.rewards.only_positive_rewards
     assert cfg.camera.pitch_degrees == 28.
     assert "version 4" in source
     assert training.control.action_scale == .25
-    assert training.rewards.only_positive_rewards
+    assert not training.rewards.only_positive_rewards
     assert training.noise.add_noise and training.domain_rand.push_robots
 
 

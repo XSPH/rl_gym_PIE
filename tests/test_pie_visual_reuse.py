@@ -1,14 +1,15 @@
 """CPU equivalence checks for lossless depth storage and differentiable reuse."""
+from native_rsl_helpers import restore_observation
 from copy import deepcopy
 import json
 
 import pytest
 import torch
 
-from rsl_rl.algorithms.ppo_pie import PIEPPO, clone_observation
-from rsl_rl.modules.actor_critic_pie import ModelConfig, PIEActorCritic, PIEDepthFeatureCache
+from rsl_rl.algorithms.ppo_pie import PIEPPO
+from rsl_rl.modules.actor_critic_pie import PIEActorCritic, PIEDepthFeatureCache
 from rsl_rl.storage.rollout_storage_pie import DepthFramePool, PIERolloutStorage
-from native_rsl_helpers import algorithm_config, collect_native
+from native_rsl_helpers import algorithm_config, collect_native, model_config
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -30,7 +31,7 @@ def precision(request):
 
 
 def _model():
-    cfg = ModelConfig(
+    cfg = model_config(initial_std=1.0,
         proprio_dim=3, proprio_history=2, depth_history=2, action_dim=2,
         heightmap_dim=3, critic_dim=4, token_dim=8, gru_dim=8,
         latent_dim=2, map_latent_dim=2, transformer_heads=2,
@@ -39,7 +40,7 @@ def _model():
         cnn_paddings=(1, 1, 1), visual_grid=(1, 1),
         actor_hidden_dims=(8,), critic_hidden_dims=(8,),
         successor_hidden_dims=(8,), height_decoder_hidden_dims=(8,))
-    return PIEActorCritic(cfg).cpu()
+    return PIEActorCritic(**cfg).cpu()
 
 
 def _sequence(steps=24, count=3, shape=(8, 8), input_mode='depth'):
@@ -122,7 +123,7 @@ def test_frame_pool_reconstructs_both_channels_and_owns_immutable_images(input_m
     stored, expected = [], []
     for obs in observations:
         expected.append(obs["depth"].clone())
-        stored.append(clone_observation(obs, pool))
+        stored.append(_store_observation(obs, pool))
         # Simulate reusable environment buffers being overwritten immediately.
         obs["depth"].fill_(-999)
         obs["depth_frame_ids"].fill_(-999)
@@ -131,10 +132,10 @@ def test_frame_pool_reconstructs_both_channels_and_owns_immutable_images(input_m
     assert images.shape[0] < len(stored) * 3 * 2
     assert all("depth" not in obs and "depth_frame_ids" not in obs for obs in stored)
     for obs, original in zip(stored, expected):
-        recovered = PIERolloutStorage.observation(
+        recovered = restore_observation(
             {"obs": obs}, depth_frames=images, restore_depth=True)
         torch.testing.assert_close(recovered["depth"], original, rtol=0, atol=0)
-        subset = PIERolloutStorage.observation(
+        subset = restore_observation(
             {"obs": obs}, torch.tensor([2, 0]), images, restore_depth=True)
         torch.testing.assert_close(subset["depth"], original[[2, 0]], rtol=0, atol=0)
     with pytest.raises(RuntimeError, match="sealed"):
@@ -196,14 +197,14 @@ def test_indexed_multi_epoch_ppo_matches_legacy_full_recurrent_updates(precision
         torch.manual_seed(71)
         batch, _ = collect_native(algorithm, env, steps=24)
         batches.append(batch)
-        finals.append(algorithm.model.get_hidden_states()[0].clone())
+        finals.append(algorithm.actor_critic.get_hidden_states()[0].clone())
     for key in ("advantages", "returns"):
         torch.testing.assert_close(batches[1][key], batches[0][key], rtol=1e-5, atol=1e-6)
     for legacy_frame, indexed_frame in zip(batches[0]["frames"], batches[1]["frames"]):
         for key in ("actions", "old_logp", "values", "rewards", "successor"):
             torch.testing.assert_close(indexed_frame[key], legacy_frame[key],
                                        rtol=1e-5, atol=1e-6)
-        restored = PIERolloutStorage.observation(
+        restored = restore_observation(
             indexed_frame, depth_frames=batches[1]["depth_frames"], restore_depth=True)
         torch.testing.assert_close(restored["depth"], legacy_frame["obs"]["depth"],
                                    rtol=0, atol=0)
@@ -242,25 +243,25 @@ def test_indexed_multi_epoch_ppo_matches_legacy_full_recurrent_updates(precision
                                        msg=name)
     assert reports[1]["cnn_encoded_stacks"] < reports[1]["cnn_dense_stacks"]
     assert reports[0]["cnn_encoded_stacks"] == reports[0]["cnn_dense_stacks"]
-    assert (indexed.model.depth_encoder[0].weight.grad.abs().sum() > 0) == (input_mode == 'depth')
-    assert indexed.model.depth_encoder[0].bias.grad.abs().sum() > 0
-    assert indexed.model.gru.weight_hh.grad.abs().sum() > 0
+    assert (indexed.actor_critic.depth_encoder[0].weight.grad.abs().sum() > 0) == (input_mode == 'depth')
+    assert indexed.actor_critic.depth_encoder[0].bias.grad.abs().sum() > 0
+    assert indexed.actor_critic.gru.weight_hh.grad.abs().sum() > 0
 
     # refresh_hidden must use newly updated CNN weights, not collection features.
-    refreshed = indexed.model.get_hidden_states()[0]
+    refreshed = indexed.actor_critic.get_hidden_states()[0]
     mask = batches[1]["frames"][-1]["terminated"] | batches[1]["frames"][-1]["truncated"]
     with torch.no_grad():
         expected_hidden = batches[1]["hidden"].clone()
         for frame in batches[1]["frames"]:
-            obs = PIERolloutStorage.observation(
+            obs = restore_observation(
                 frame, depth_frames=batches[1]["depth_frames"], restore_depth=True)
-            _, expected_hidden = indexed.model.encode(obs, expected_hidden, frame["reset"])
+            _, expected_hidden = indexed.actor_critic.encode(obs, expected_hidden, frame["reset"])
         expected_hidden[2] = 0
     torch.testing.assert_close(refreshed, expected_hidden, rtol=1e-5, atol=1e-6)
     assert mask.tolist() == [False, False, True]
     assert not refreshed.requires_grad
     assert not torch.equal(refreshed[1], finals[1][1])
-    legacy_refreshed = plain.model.get_hidden_states()[0]
+    legacy_refreshed = plain.actor_critic.get_hidden_states()[0]
     legacy_mask = batches[0]["frames"][-1]["terminated"] | batches[0]["frames"][-1]["truncated"]
     torch.testing.assert_close(refreshed, legacy_refreshed, rtol=1e-5, atol=1e-6)
     assert torch.equal(mask, legacy_mask)
@@ -270,7 +271,7 @@ def test_reused_24_step_graph_retains_fewer_activations_and_cnn_inputs(monkeypat
     import rsl_rl.modules.actor_critic_pie as network
 
     torch.manual_seed(63)
-    model = PIEActorCritic(ModelConfig()).cpu().train()
+    model = PIEActorCritic(45, 235, 12).cpu().train()
     observations, resets = _sequence(count=4, shape=(60, 80))
     for step, obs in enumerate(observations):
         history = torch.cos(torch.arange(4 * 10 * 45).reshape(4, 10, 45) / 37 + step / 9)
@@ -278,7 +279,7 @@ def test_reused_24_step_graph_retains_fewer_activations_and_cnn_inputs(monkeypat
         obs["proprio"] = history[:, -1].clone()
         obs["critic"] = torch.zeros(4, 235)
     pool = DepthFramePool()
-    indexed_frames = [{"obs": clone_observation(obs, pool)} for obs in observations[:24]]
+    indexed_frames = [{"obs": _store_observation(obs, pool)} for obs in observations[:24]]
     depth_frames = pool.materialize()
     parameter_storages = {parameter.untyped_storage().data_ptr()
                           for parameter in model.parameters()}
@@ -300,7 +301,7 @@ def test_reused_24_step_graph_retains_fewer_activations_and_cnn_inputs(monkeypat
         with torch.autograd.graph.saved_tensors_hooks(pack, lambda tensor: tensor):
             for raw_obs, frame, reset in zip(observations[:24], indexed_frames, resets[:24]):
                 if reuse:
-                    obs = PIERolloutStorage.observation(frame, ids)
+                    obs = restore_observation(frame, ids)
                     visual = cache.get(model, obs, depth_frames)
                 else:
                     # Match the old trajectory update's environment indexing.
@@ -331,3 +332,13 @@ def test_reused_24_step_graph_retains_fewer_activations_and_cnn_inputs(monkeypat
     assert measures["reuse_checkpoint"]["cnn_input_stacks"] < measures["dense_checkpoint"]["cnn_input_stacks"]
     assert measures["reuse_checkpoint"]["saved_activation_bytes"] < measures["dense_checkpoint"]["saved_activation_bytes"]
     assert measures["reuse_no_checkpoint"]["saved_activation_bytes"] < measures["dense_no_checkpoint"]["saved_activation_bytes"]
+
+
+def _store_observation(obs, pool):
+    storage = PIERolloutStorage(obs["proprio"].shape[0], 1, [obs["proprio"].shape[-1]],
+                               [obs["critic"].shape[-1]], [2])
+    storage.depth_pool = pool
+    transition = PIERolloutStorage.Transition()
+    storage.prepare_transition(obs, transition)
+    return {"proprio": transition.observations, "critic": transition.critic_observations,
+            "proprio_history": transition.proprio_history, "depth_indices": transition.depth_indices}

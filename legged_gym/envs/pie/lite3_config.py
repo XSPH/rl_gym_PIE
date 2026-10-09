@@ -1,5 +1,4 @@
 """Lite3 PIE settings in the original nested task configuration."""
-from dataclasses import asdict
 
 from legged_gym.envs.base.legged_robot_config import LeggedRobotCfg, LeggedRobotCfgPPO
 
@@ -131,20 +130,30 @@ class Lite3PIECfg(LeggedRobotCfg):
 class Lite3PIECfgPPO(LeggedRobotCfgPPO):
     runner_class_name = 'PIEOnPolicyRunner'
 
-    def __init__(self):
-        super().__init__()
-        from rsl_rl.modules import ModelConfig
-        model = asdict(ModelConfig())
-        for native_owned in ('initial_std', 'actor_hidden_dims', 'critic_hidden_dims', 'activation'):
-            model.pop(native_owned)
-        self.policy.model_config = model
-        self.algorithm.estimation_weight = 1.0
-        self.algorithm.kl_weight = 1.0
-
     class policy(LeggedRobotCfgPPO.policy):
-        # Native policy fields own actor/critic widths, activation and std.
-        # PIE adds CNN/Transformer/GRU and estimator dimensions only.
-        model_config = None
+        proprio_history = 10
+        depth_history = 2
+        heightmap_dim = 187
+        token_dim = 128
+        gru_dim = 128
+        latent_dim = 16
+        map_latent_dim = 32
+        transformer_heads = 4
+        transformer_layers = 1
+        proprio_hidden_dims = (512, 256)
+        cnn_hidden_channels = (32, 64)
+        cnn_kernel_sizes = (5, 3, 3)
+        cnn_strides = (2, 2, 2)
+        cnn_paddings = (2, 1, 1)
+        visual_grid = (4, 4)
+        transformer_ffn_multiplier = 2
+        transformer_dropout = 0.0
+        successor_hidden_dims = (128, 128)
+        height_decoder_hidden_dims = (128, 128)
+
+    class algorithm(LeggedRobotCfgPPO.algorithm):
+        estimation_weight = 1.0
+        kl_weight = 1.0
 
     class runner(LeggedRobotCfgPPO.runner):
         policy_class_name = 'PIEActorCritic'

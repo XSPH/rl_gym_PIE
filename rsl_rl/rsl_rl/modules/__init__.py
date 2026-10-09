@@ -30,4 +30,4 @@
 
 from .actor_critic import ActorCritic
 from .actor_critic_recurrent import ActorCriticRecurrent
-from .actor_critic_pie import PIEActorCritic, ModelConfig
+from .actor_critic_pie import PIEActorCritic

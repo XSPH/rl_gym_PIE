@@ -1,12 +1,12 @@
 """Native PPO scheduling, behavior distributions, and activation gradients."""
-from dataclasses import asdict
+from native_rsl_helpers import restore_observation
 
 import pytest
 import torch
 from torch.distributions import Normal, kl_divergence
 
 from native_rsl_helpers import algorithm_config, rollout
-from rsl_rl.modules.actor_critic_pie import ModelConfig, PIEActorCritic
+from rsl_rl.modules.actor_critic_pie import PIEActorCritic
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -41,15 +41,14 @@ def test_invalid_native_algorithm_parameters_fail_at_initialization(override, me
 def test_native_policy_configuration_controls_std_width_and_activation():
     from native_rsl_helpers import model_config
     cfg = model_config()
-    model = PIEActorCritic(3, 4, 2, model_config=asdict(cfg),
-                           init_noise_std=.73, actor_hidden_dims=[11, 7],
-                           critic_hidden_dims=[13], activation="tanh")
+    cfg.update(init_noise_std=.73, actor_hidden_dims=[11, 7], critic_hidden_dims=[13], activation="tanh")
+    model = PIEActorCritic(**cfg)
     torch.testing.assert_close(model.std, torch.full((2,), .73), rtol=0, atol=0)
     assert model.actor[0].out_features == 11 and model.actor[2].out_features == 7
     assert model.critic[0].out_features == 13
     assert isinstance(model.actor[1], torch.nn.Tanh)
-    assert model.cfg.initial_std == .73
-    assert model.cfg.actor_hidden_dims == (11, 7) and model.cfg.critic_hidden_dims == (13,)
+    assert model.init_noise_std == .73
+    assert model.actor_hidden_dims == (11, 7) and model.critic_hidden_dims == (13,)
 
 
 def test_behavior_distributions_share_native_storage_and_are_immutable():
@@ -60,8 +59,8 @@ def test_behavior_distributions_share_native_storage_and_are_immutable():
         assert frame["old_sigma"].data_ptr() == algorithm.storage.sigma[index].data_ptr()
         assert not frame["old_mu"].requires_grad
     with torch.no_grad():
-        algorithm.model.actor[-1].bias.add_(1)
-        algorithm.model.std.mul_(2)
+        algorithm.actor_critic.actor[-1].bias.add_(1)
+        algorithm.actor_critic.std.mul_(2)
     torch.testing.assert_close(algorithm.storage.mu, old_mu, rtol=0, atol=0)
     torch.testing.assert_close(algorithm.storage.sigma, old_sigma, rtol=0, atol=0)
 
@@ -83,8 +82,8 @@ def test_lr_schedule_precedes_each_native_optimizer_step(
     algorithm, _ = rollout(algorithm_config(num_learning_epochs=1, num_mini_batches=1, learning_rate=lr,
                                     schedule=schedule, desired_kl=desired_kl))
     with torch.no_grad():
-        algorithm.model.actor[-1].bias.add_(shift)
-        algorithm.model.std.mul_(scale)
+        algorithm.actor_critic.actor[-1].bias.add_(shift)
+        algorithm.actor_critic.std.mul_(scale)
     step_lrs = []
     original = algorithm.optimizer.step
     def step():
@@ -100,16 +99,16 @@ def test_lr_schedule_precedes_each_native_optimizer_step(
 def test_policy_kl_unrolls_recurrent_gaussians_and_keeps_vae_kl_separate():
     algorithm, batch = rollout(algorithm_config(num_learning_epochs=1, num_mini_batches=1, schedule="fixed"))
     with torch.no_grad():
-        algorithm.model.actor[0].weight.add_(.05)
-        algorithm.model.gru.weight_hh.add_(.03)
-        algorithm.model.std.copy_(torch.tensor([.75, .35]))
+        algorithm.actor_critic.actor[0].weight.add_(.05)
+        algorithm.actor_critic.gru.weight_hh.add_(.03)
+        algorithm.actor_critic.std.copy_(torch.tensor([.75, .35]))
         hidden = batch["hidden"].clone()
         references = []
         for frame in batch["frames"]:
-            obs = algorithm.storage.observation(frame, depth_frames=batch["depth_frames"], restore_depth=True)
-            _, _, _, hidden, _ = algorithm.model.evaluate_actions(
+            obs = restore_observation(frame, depth_frames=batch["depth_frames"], restore_depth=True)
+            _, _, _, hidden, _ = algorithm.actor_critic.evaluate_actions(
                 obs, hidden, frame["actions"], frame["reset"])
-            current = algorithm.model.distribution
+            current = algorithm.actor_critic.distribution
             behavior = Normal(frame["old_mu"], frame["old_sigma"])
             correction = torch.log1p(1e-5 * behavior.scale / current.scale)
             references.append((kl_divergence(behavior, current) + correction).sum(-1))
@@ -122,7 +121,7 @@ def test_policy_kl_unrolls_recurrent_gaussians_and_keeps_vae_kl_separate():
 def test_adaptive_lr_runs_for_every_whole_trajectory_minibatch(monkeypatch):
     algorithm, _ = rollout(algorithm_config(num_learning_epochs=2, num_mini_batches=2))
     with torch.no_grad():
-        algorithm.model.actor[-1].bias.add_(1)
+        algorithm.actor_critic.actor[-1].bias.add_(1)
     original = algorithm.optimizer.step
     step_lrs = []
     def step():
@@ -144,18 +143,18 @@ def test_activation_checkpoint_preserves_joint_update_and_gradients(monkeypatch)
         reference.update()
     torch.manual_seed(17)
     checkpointed.update()
-    for name, expected in reference.model.named_parameters():
-        actual = dict(checkpointed.model.named_parameters())[name]
+    for name, expected in reference.actor_critic.named_parameters():
+        actual = dict(checkpointed.actor_critic.named_parameters())[name]
         torch.testing.assert_close(actual, expected, rtol=1e-5, atol=1e-7)
         if expected.grad is not None:
             torch.testing.assert_close(actual.grad, expected.grad, rtol=1e-5, atol=1e-7)
-    assert checkpointed.model.depth_encoder[0].weight.grad.abs().sum() > 0
-    assert checkpointed.model.gru.weight_hh.grad.abs().sum() > 0
+    assert checkpointed.actor_critic.depth_encoder[0].weight.grad.abs().sum() > 0
+    assert checkpointed.actor_critic.gru.weight_hh.grad.abs().sum() > 0
 
 
 def test_visual_checkpoint_reduces_retained_activation_storage(monkeypatch):
     import rsl_rl.modules.actor_critic_pie as network
-    model = PIEActorCritic(ModelConfig()).train()
+    model = PIEActorCritic(45, 235, 12).train()
     obs = {"proprio_history": torch.zeros(4, 10, 45), "depth": torch.randn(4, 2, 60, 80)}
     parameter_storages = {value.untyped_storage().data_ptr() for value in model.parameters()}
     def retained_bytes():

@@ -1,9 +1,9 @@
 # PIE 网络超参数决策
 
-当前 Gym 分支 `refactor/pie-native-training` 保留本文默认网络形状。
+当前 Gym 分支 `refactor/pie-rsl-native-style` 保留本文默认网络形状。
 Actor/Critic 层宽、激活与探索噪声以原版 `train_cfg.policy` 字段为准，
-保存解析后的有效 `model_config`。只接受本分支 version-4 模型；不兼容历史模型。
-原版流程接入与最新验证见 [重构记录](docs/native_training_refactor.md)。
+保存解析后的有效 `model_config`。兼容已有 version-4 模型；不兼容 version-3 及更早格式。
+原版接口和兼容边界见 [RSL 扩展说明](rsl_rl/PIE_EXTENSION.md)。
 
 网络设计日期：2026-10-01；正式训练配置修订：2026-10-02。两平台采用相同网络尺寸，各自在项目内保存实现与配置。本文确定复现基线，不声称恢复了 PIE 作者未公开的配置，也不声称经过收敛或速度验证。
 
@@ -46,7 +46,7 @@ LocoTransformer正文另有“hidden feature dimension 256”的描述；附录�
 
 ## 配置与复现边界
 
-网络宽度、CNN核/步幅/padding、token网格、Transformer FFN比例和dropout都已纳入各项目的 `ModelConfig`，由checkpoint的 `model_config=asdict(cfg)` 保存。默认层形状保持上述基线。当前 Gym 原版流程分支拒绝旧格式模型；模型配置会检查token/head整除、CNN层数、正维数和零dropout，避免形成不一致的网络。
+Gym 的网络宽度、CNN 核/步幅/padding、token 网格、Transformer FFN 比例和 dropout 直接配置在 `Lite3PIECfgPPO.policy`，由模型显式构造参数接收。checkpoint 继续保存兼容 v4 的有效 `model_config`；旧嵌套配置在加载入口转换。默认层形状保持上述基线，初始化检查 token/head 整除、CNN 层数、正维数和零 dropout。mjlab 仍在独立仓库维护，不受本次重构影响。
 
 Isaac Gym在本地rsl_rl v1.0.2的ActorCritic上扩展，使用原生std参数；mjlab沿用独立rsl_rl 5.4.2的MLP与原生scalar GaussianDistribution。两边均直接优化逐动作std；mjlab保留该固定依赖的原生数值边界，Gym只保留dtype epsilon正值保护。旧mjlab log_std权重可转换用于评估，log-space Adam状态不能用于scalar-space续训。
 

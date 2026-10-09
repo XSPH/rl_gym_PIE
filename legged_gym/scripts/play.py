@@ -23,7 +23,8 @@ def play(args):
         checkpoint = torch.load(args.checkpoint_file, map_location="cpu", weights_only=True)
         env_cfg.env.num_envs = args.num_envs if args.num_envs is not None else 1
         env_cfg, source = restore_playback_config(env_cfg, checkpoint, show_depth=show_depth)
-        update_class_from_dict(train_cfg, checkpoint["train_config"])
+        from rsl_rl.utils.pie_config import normalize_train_config
+        update_class_from_dict(train_cfg, normalize_train_config(checkpoint["train_config"]))
         train_cfg.runner.resume = False
         print("[PIE playback] {}: envs={}, steps={}, camera.input_mode={}".format(
             source, env_cfg.env.num_envs, args.steps, env_cfg.camera.input_mode), flush=True)

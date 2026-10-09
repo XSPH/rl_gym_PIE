@@ -62,54 +62,93 @@ class DepthFramePool:
 
 
 class PIERolloutStorage(RolloutStorage):
-    """Original transition tensors and GAE plus PIE sequence side buffers.
+    """Native transition tensors extended with full PIE actor trajectories.
 
-    The actor is recurrent and the critic is not. Whole environment trajectories
-    preserve all control-step GRU links, including resets inside a rollout.
+    Time and environment are the leading axes of every side buffer. The critic
+    is feedforward; only the actor state at the start of a rollout is retained.
     """
+    class Transition(RolloutStorage.Transition):
+        def __init__(self):
+            super().__init__()
+            self.proprio_history = None
+            self.depth_indices = None
+            self.depth = None
+            self.targets = None
+            self.valid = None
+            self.reset_mask = None
+            self.successor = None
+            self.successor_valid = None
+            self.raw_rewards = None
+            self.terminated = None
+            self.truncated = None
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.frames = []
+        self.proprio_history = None
+        self.depth_indices = None
+        self.depth = None
+        self.targets = {}
+        self.valid = None
+        self.reset_mask = None
+        self.successor = None
+        self.successor_valid = None
+        self.raw_rewards = None
+        self.terminated = None
+        self.truncated = None
         self.initial_hidden = None
         self.depth_pool = DepthFramePool()
 
+    def prepare_transition(self, observations, transition):
+        # Snapshot before env.step() can overwrite observations or reset labels.
+        transition.observations = observations["proprio"].detach().clone()
+        transition.critic_observations = observations["critic"].detach().clone()
+        transition.proprio_history = observations["proprio_history"].detach().clone()
+        transition.targets = {name: value.detach().clone()
+                              for name, value in observations["targets"].items()}
+        transition.valid = torch.isfinite(observations["proprio"]).all(-1)
+        if "depth_frame_ids" in observations:
+            transition.depth_indices = self.depth_pool.add(
+                observations["depth"], observations["depth_frame_ids"])
+        else:
+            transition.depth = observations["depth"].detach().clone()
+
     def _save_hidden_states(self, hidden_states):
-        # Parent recurrent storage assumes both actor and critic have memory.
-        # PIE needs only the detached rollout-start actor state for full replay.
         if self.step == 0:
             if hidden_states is None or hidden_states[0] is None:
                 raise RuntimeError("PIE transitions require an actor GRU state")
-            actor = hidden_states[0]
-            self.initial_hidden = actor.detach().clone()
+            self.initial_hidden = hidden_states[0].detach().clone()
+
+    def _store_tensor(self, buffer, value):
+        if buffer is None:
+            buffer = value.new_empty(self.num_transitions_per_env, *value.shape)
+        buffer[self.step].copy_(value)
+        return buffer
 
     def add_transitions(self, transition):
-        frame = transition.pie_frame
+        if self.step >= self.num_transitions_per_env:
+            raise AssertionError("Rollout buffer overflow")
+        for name in ("proprio_history", "depth_indices", "depth", "valid", "reset_mask",
+                     "successor", "successor_valid", "raw_rewards", "terminated", "truncated"):
+            value = getattr(transition, name)
+            if value is not None:
+                setattr(self, name, self._store_tensor(getattr(self, name), value))
+        for name, value in transition.targets.items():
+            self.targets[name] = self._store_tensor(self.targets.get(name), value)
         super().add_transitions(transition)
-        index = self.step - 1
-        frame["obs"]["proprio"] = self.observations[index]
-        frame["obs"]["critic"] = self.privileged_observations[index]
-        for key, tensor in (("actions", self.actions), ("old_logp", self.actions_log_prob),
-                            ("values", self.values), ("rewards", self.rewards),
-                            ("old_mu", self.mu), ("old_sigma", self.sigma)):
-            frame[key] = tensor[index] if key in ("actions", "old_mu", "old_sigma") else tensor[index, :, 0]
-        self.frames.append(frame)
 
-    def as_batch(self):
-        if self.step != self.num_transitions_per_env:
-            raise RuntimeError("PIE training requires a complete rollout")
-        return {"frames": self.frames, "hidden": self.initial_hidden,
-                "depth_frames": self.depth_pool.materialize(),
-                "advantages": self.advantages[:, :, 0], "returns": self.returns[:, :, 0]}
-
-    @staticmethod
-    def observation(frame, ids=None, depth_frames=None, restore_depth=False):
-        obs = {key: value if ids is None else value[ids]
-               for key, value in frame["obs"].items()}
-        if restore_depth and "depth_indices" in obs:
-            if depth_frames is None:
-                raise ValueError("Indexed observations require their rollout depth frame pool")
-            obs["depth"] = depth_frames[obs["depth_indices"]]
-        return obs
+    def observation(self, step, ids=None, restore_depth=False):
+        observations = {"proprio": self.observations[step],
+                        "critic": self.privileged_observations[step],
+                        "proprio_history": self.proprio_history[step]}
+        if self.depth_indices is not None:
+            observations["depth_indices"] = self.depth_indices[step]
+        else:
+            observations["depth"] = self.depth[step]
+        if ids is not None:
+            observations = {name: value[ids] for name, value in observations.items()}
+        if restore_depth and "depth_indices" in observations:
+            observations["depth"] = self.depth_pool.materialize()[observations["depth_indices"]]
+        return observations
 
     @staticmethod
     def trajectory_mini_batch_generator(batch_size, device, num_mini_batches, num_epochs):
@@ -119,8 +158,30 @@ class PIERolloutStorage(RolloutStorage):
             indices = torch.randperm(batch_size, device=device)
             yield from torch.tensor_split(indices, num_mini_batches)
 
+    def recurrent_mini_batch_generator(self, num_mini_batches, num_epochs=8):
+        if self.step != self.num_transitions_per_env:
+            raise RuntimeError("PIE training requires a complete rollout")
+        depth_frames = self.depth_pool.materialize()
+        for ids in self.trajectory_mini_batch_generator(
+                self.num_envs, self.device, num_mini_batches, num_epochs):
+            observations = {"proprio": self.observations[:, ids],
+                            "critic": self.privileged_observations[:, ids],
+                            "proprio_history": self.proprio_history[:, ids]}
+            if self.depth_indices is not None:
+                observations["depth_indices"] = self.depth_indices[:, ids]
+            else:
+                observations["depth"] = self.depth[:, ids]
+            yield (observations, observations["critic"].flatten(0, 1),
+                   self.actions[:, ids].flatten(0, 1), self.values[:, ids].flatten(0, 1),
+                   self.advantages[:, ids].flatten(0, 1), self.returns[:, ids].flatten(0, 1),
+                   self.actions_log_prob[:, ids].flatten(0, 1), self.mu[:, ids].flatten(0, 1),
+                   self.sigma[:, ids].flatten(0, 1), (self.initial_hidden[ids], None),
+                   self.reset_mask[:, ids],
+                   {name: value[:, ids] for name, value in self.targets.items()},
+                   self.successor[:, ids], self.valid[:, ids], self.successor_valid[:, ids],
+                   depth_frames)
+
     def clear(self):
         super().clear()
-        self.frames = []
         self.initial_hidden = None
         self.depth_pool = DepthFramePool()

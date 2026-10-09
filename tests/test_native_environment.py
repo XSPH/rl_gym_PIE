@@ -139,13 +139,13 @@ def test_native_total_clip_keeps_negative_reward_stats_and_partial_reset(classes
     assert (task.actions[[0, 2]] == 5).all()
 
 
-def test_only_ten_paper_reward_terms_are_enabled_and_base_physx_unchanged(classes):
+def test_current_experiment_reward_terms_and_base_physx_are_preserved(classes):
     cfg = classes.config()
     nonzero = {key: value for key, value in class_to_dict(cfg.rewards.scales).items()
                if value != 0}
     assert nonzero == {"tracking_lin_vel": 1.5, "tracking_ang_vel": .5,
         "lin_vel_z": -1., "ang_vel_xy": -.05, "orientation": -1.,
         "dof_acc": -2.5e-7, "joint_power": -2e-5, "collision": -10.,
-        "action_rate": -.01, "smoothness": -.01}
+        "action_rate": -.01, "smoothness": -.01, "torques": -1e-4, "base_height": -1.}
     base_cfg = classes.base.__init__.__annotations__["cfg"]()
     assert class_to_dict(cfg.sim.physx) == class_to_dict(base_cfg.sim.physx)

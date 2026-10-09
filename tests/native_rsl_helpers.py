@@ -1,10 +1,9 @@
 """CPU-only native VecEnv fixture and collection using actual RSL entry points."""
-from dataclasses import asdict
 
 import torch
 
 from rsl_rl.algorithms.ppo_pie import PIEPPO
-from rsl_rl.modules.actor_critic_pie import ModelConfig, PIEActorCritic
+from rsl_rl.modules.actor_critic_pie import PIEActorCritic
 
 
 def algorithm_config(**overrides):
@@ -27,7 +26,9 @@ def model_config(**overrides):
         actor_hidden_dims=(8,), critic_hidden_dims=(8,),
         successor_hidden_dims=(8,), height_decoder_hidden_dims=(8,))
     values.update(overrides)
-    return ModelConfig(**values)
+    names = dict(proprio_dim="num_actor_obs", critic_dim="num_critic_obs",
+                 action_dim="num_actions", initial_std="init_noise_std")
+    return {names.get(name, name): value for name, value in values.items()}
 
 
 def train_config(cfg=None, model=None, rollout=3, save_interval=500):
@@ -35,7 +36,7 @@ def train_config(cfg=None, model=None, rollout=3, save_interval=500):
                        "algorithm_class_name": "PIEPPO",
                        "num_steps_per_env": rollout, "save_interval": save_interval,
                        "max_iterations": 15000},
-            "policy": {"model_config": asdict(model or model_config())},
+            "policy": dict(model or model_config()),
             "algorithm": (cfg or algorithm_config(num_learning_epochs=1, num_mini_batches=1))}
 
 
@@ -110,7 +111,7 @@ def collect_native(algorithm, environment, steps=3, initial_hidden=None):
     algorithm.init_storage(environment.num_envs, steps, [environment.num_obs],
                            [environment.num_privileged_obs], [environment.num_actions])
     if initial_hidden is not None:
-        algorithm.model._hidden = initial_hidden.clone()
+        algorithm.actor_critic.set_hidden_states(initial_hidden.clone())
     algorithm.begin_rollout()
     transitions = []
     with torch.no_grad():
@@ -121,14 +122,39 @@ def collect_native(algorithm, environment, steps=3, initial_hidden=None):
             transitions.append((reward.clone(), done.clone(), info))
             algorithm.process_env_step(reward, done, info)
         algorithm.compute_returns(critic)
-    return algorithm.storage.as_batch(), transitions
+    return storage_snapshot(algorithm.storage), transitions
 
 
 def rollout(cfg=None, steps=3, indexed=True):
     torch.manual_seed(41)
-    model = PIEActorCritic(model_config())
+    model = PIEActorCritic(**model_config())
     algorithm = PIEPPO(model, device="cpu",
                        **(cfg or algorithm_config(num_learning_epochs=1, num_mini_batches=1)))
     environment = TensorEnvironment(count=max(3, algorithm.num_mini_batches), indexed=indexed)
     batch, _ = collect_native(algorithm, environment, steps)
     return algorithm, batch
+
+
+def storage_snapshot(storage):
+    """Test-only views for independent dense replay and transition assertions."""
+    frames = []
+    for step in range(storage.step):
+        frame = {"obs": storage.observation(step), "reset": storage.reset_mask[step],
+                 "targets": {name: value[step] for name, value in storage.targets.items()}}
+        for name in ("successor", "successor_valid", "valid", "raw_rewards", "terminated", "truncated"):
+            frame[name] = getattr(storage, name)[step]
+        for name, tensor in (("actions", storage.actions), ("old_logp", storage.actions_log_prob),
+                             ("values", storage.values), ("rewards", storage.rewards),
+                             ("old_mu", storage.mu), ("old_sigma", storage.sigma)):
+            frame[name] = tensor[step] if name in ("actions", "old_mu", "old_sigma") else tensor[step, :, 0]
+        frames.append(frame)
+    return {"frames": frames, "hidden": storage.initial_hidden,
+            "depth_frames": storage.depth_pool.materialize(),
+            "advantages": storage.advantages[:, :, 0], "returns": storage.returns[:, :, 0]}
+
+
+def restore_observation(frame, ids=None, depth_frames=None, restore_depth=False):
+    obs = {name: value if ids is None else value[ids] for name, value in frame["obs"].items()}
+    if restore_depth and "depth_indices" in obs:
+        obs["depth"] = depth_frames[obs["depth_indices"]]
+    return obs

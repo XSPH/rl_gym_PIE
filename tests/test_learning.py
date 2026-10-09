@@ -1,4 +1,5 @@
 """CPU checks for native actor privacy, recurrent reset, and timeout bootstraps."""
+from native_rsl_helpers import restore_observation
 from copy import deepcopy
 
 import pytest
@@ -11,7 +12,7 @@ from rsl_rl.modules.actor_critic_pie import PIEActorCritic
 
 def test_privileged_inputs_cannot_change_actor_but_do_change_critic():
     torch.manual_seed(5)
-    model = PIEActorCritic(model_config()).eval()
+    model = PIEActorCritic(**model_config()).eval()
     obs = TensorEnvironment().get_pie_observations()
     hidden = model.initial_state(3)
     actor1 = model.policy_distribution(obs, hidden)[0].mean
@@ -28,14 +29,14 @@ def test_privileged_inputs_cannot_change_actor_but_do_change_critic():
 
 def test_native_actor_probability_replay_and_partial_recurrent_reset():
     torch.manual_seed(9)
-    model = PIEActorCritic(model_config()).eval()
+    model = PIEActorCritic(**model_config()).eval()
     obs = TensorEnvironment().get_pie_observations()
     actions = model.act(obs)
     old_logp = model.get_actions_log_prob(actions).detach().clone()
     replay = model.evaluate_actions(obs, model.initial_state(3), actions)
     torch.testing.assert_close(replay[0], old_logp, rtol=0, atol=0)
     actor_hidden, critic_hidden = model.get_hidden_states()
-    assert actor_hidden.shape == (3, model.cfg.gru_dim) and critic_hidden is None
+    assert actor_hidden.shape == (3, model.gru_dim) and critic_hidden is None
     continuing = actor_hidden[[0, 2]].clone()
     model.reset(torch.tensor([False, True, False]))
     actor_hidden, _ = model.get_hidden_states()
@@ -64,8 +65,8 @@ def test_native_storage_uses_pre_reset_successor_and_truefinal_value_once():
     terminal = env.get_privileged_observations().clone()
     terminal[1] += 11
     with torch.no_grad():
-        final_value = algorithm.model.evaluate(terminal)[:, 0]
-        reset_value = algorithm.model.evaluate(env.get_privileged_observations())[:, 0]
+        final_value = algorithm.actor_critic.evaluate(terminal)[:, 0]
+        reset_value = algorithm.actor_critic.evaluate(env.get_privileged_observations())[:, 0]
     assert not torch.equal(final_value[1], reset_value[1])
     torch.testing.assert_close(timeout["rewards"][1],
                                timeout["raw_rewards"][1] + .9 * final_value[1])
@@ -78,21 +79,21 @@ def test_native_storage_uses_pre_reset_successor_and_truefinal_value_once():
 
 def test_joint_update_trains_actor_cnn_gru_and_all_auxiliary_heads():
     algorithm, batch = rollout(algorithm_config(num_learning_epochs=2, num_mini_batches=2, schedule="fixed"))
-    before = {name: value.detach().clone() for name, value in algorithm.model.named_parameters()}
+    before = {name: value.detach().clone() for name, value in algorithm.actor_critic.named_parameters()}
     losses = algorithm.update()
     assert isinstance(losses, tuple) and len(losses) == 2
     assert all(torch.isfinite(torch.tensor(value)) for value in algorithm.metrics.values())
-    assert algorithm.storage.step == 0 and algorithm.storage.frames == []
+    assert algorithm.storage.step == 0 and algorithm.storage.initial_hidden is None
     for name in ("actor.0.weight", "critic.0.weight", "depth_encoder.0.weight",
                  "gru.weight_ih", "velocity_head.weight", "clearance_head.weight",
                  "height_decoder.0.weight", "successor_decoder.0.weight",
                  "mu_head.weight", "logvar_head.weight"):
-        actual = dict(algorithm.model.named_parameters())[name]
+        actual = dict(algorithm.actor_critic.named_parameters())[name]
         assert not torch.equal(actual, before[name]), name
 
 
 def test_replay_under_updated_weights_preserves_continuing_episode_memory():
-    model = PIEActorCritic(model_config())
+    model = PIEActorCritic(**model_config())
     algorithm = PIEPPO(model, device="cpu", **algorithm_config(num_learning_epochs=1, num_mini_batches=1))
     environment = TensorEnvironment(resets={1: (0, False), 3: (1, True)})
     batch, _ = collect_native(algorithm, environment)
@@ -100,18 +101,18 @@ def test_replay_under_updated_weights_preserves_continuing_episode_memory():
     with torch.no_grad():
         expected = batch["hidden"].clone()
         for frame in batch["frames"]:
-            obs = algorithm.storage.observation(
+            obs = restore_observation(
                 frame, depth_frames=batch["depth_frames"], restore_depth=True)
-            _, expected = algorithm.model.encode(obs, expected, frame["reset"])
+            _, expected = algorithm.actor_critic.encode(obs, expected, frame["reset"])
         expected[1] = 0
-    hidden, _ = algorithm.model.get_hidden_states()
+    hidden, _ = algorithm.actor_critic.get_hidden_states()
     torch.testing.assert_close(hidden, expected, rtol=1e-5, atol=1e-6)
     assert hidden[0].norm() > 0 and hidden[2].norm() > 0
     assert not hidden.requires_grad
 
 
 def test_invalid_successor_masks_only_next_state_loss():
-    model = PIEActorCritic(model_config())
+    model = PIEActorCritic(**model_config())
     obs = TensorEnvironment().get_pie_observations()
     _, _, estimates = model.policy_distribution(obs, model.initial_state(3))
     successor = torch.full_like(obs["proprio"], float("nan"))
@@ -126,7 +127,7 @@ def test_invalid_successor_masks_only_next_state_loss():
 
 
 def test_actor_policy_loss_trains_estimator_without_critic_or_variance():
-    model = PIEActorCritic(model_config())
+    model = PIEActorCritic(**model_config())
     obs = TensorEnvironment().get_pie_observations()
     distribution, _, _ = model.policy_distribution(obs, model.initial_state(3))
     actions = distribution.mean.detach() + .1

@@ -174,11 +174,11 @@ def test_camera_randomization_is_independent_and_partial_reset_is_local(blind_se
 def test_different_raw_captures_produce_identical_actions_for_fixed_proprio_and_gru(blind_debug_sensor):
     task = blind_debug_sensor
     torch.manual_seed(91)
-    model = PIEActorCritic(model_config(proprio_dim=45, proprio_history=10,
+    model = PIEActorCritic(**model_config(proprio_dim=45, proprio_history=10,
                                        action_dim=12, heightmap_dim=187, critic_dim=235)).eval()
     first = assert_blind_inputs(task)
     original_raw = task.camera.depth.clone()
-    hidden = torch.randn(task.num_envs, model.cfg.gru_dim)
+    hidden = torch.randn(task.num_envs, model.gru_dim)
     task.camera.render = lambda ids=None: task.camera.depth.fill_(2.75)
     task._render_depth()
     task._render_depth()  # Advance the fixed one-frame delay as well.

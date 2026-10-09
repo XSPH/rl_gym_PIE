@@ -7,23 +7,31 @@ This directory is vendored in the parent PIE repository.
 
 ## Native lifecycle
 
-`PIEOnPolicyRunner` inherits `OnPolicyRunner.learn()` directly. Collection uses
-the original `act → env.step → process_env_step → compute_returns → update`
-loop and the native five-element environment return value. Hooks prepare
-multimodal actor inputs, choose `torch.no_grad()` collection, append metrics, and
-save schema-4 checkpoints. No separate PIE collection or learning loop exists.
-Non-PIE tasks continue to use tensor observations and inference-mode collection.
+The public `algorithms/ppo.py` and `runners/on_policy_runner.py` are byte-for-byte
+copies of the upstream commit above. Non-PIE tasks use those original classes,
+with tensor observations and inference-mode collection.
 
-`PIEPPO` inherits `PPO.update()` directly. The shared implementation owns policy
-clipping, value clipping, entropy, diagonal-Gaussian policy KL, adaptive learning
-rate, Adam, and gradient clipping. PIE supplies complete recurrent environment
-trajectories and an auxiliary-loss hook. Actor gradients and supervised gradients
-both reach the estimator; one joint optimizer trains all network components.
+`PIEOnPolicyRunner` subclasses the native runner interface and owns its
+`learn()` and `log()` loops. Collection follows
+`act → env.step → process_env_step → compute_returns → update`, using the native
+five-element environment return value and `torch.no_grad()` so collected camera
+tensors remain usable in CNN backward. Metrics and schema-4 persistence also
+belong to the PIE runner; no PIE hooks are installed in the upstream classes.
+
+`PIEPPO` subclasses `PPO`, reusing its initialization, sampling, transition
+processing, and returns interface. It owns the full recurrent `update()` loop:
+policy/value clipping, entropy, diagonal-Gaussian KL, adaptive learning rate,
+Adam, gradient clipping, and joint auxiliary supervision retain their previous
+math and order. Actor and supervised gradients both reach the estimator through
+one optimizer. The small amount of loop duplication keeps upstream files intact.
 
 `PIERolloutStorage` extends the original transition tensors and inherits its GAE
-calculation. Additional side buffers store proprioceptive history, camera frame
-indices, current-state supervision, pre-reset successor observations, and reset
-masks. The actor has recurrent state; the critic has none.
+calculation. An extended `Transition` snapshots sensor inputs before the environment step.
+Additional time-by-environment tensors store proprioceptive history, camera
+frame indices, supervision, pre-reset successors, and reset masks. Whole
+trajectory minibatches carry these tensors directly; no per-step `frames` list
+or `actor_batch` wrapper remains. Side-buffer allocations survive rollout clears,
+while the frame pool and initial hidden state are reset. The actor has recurrent state; the critic has none.
 
 For timeouts, PIE adds `gamma * V(actual_terminal_critic)` to the reward exactly
 once, then native GAE stops its trace at the reset. True failures do not bootstrap.
@@ -31,13 +39,19 @@ No reset observation replaces the successor reconstruction target.
 
 ## Model and configuration
 
-The task passes native `runner`, `policy`, and `algorithm` configuration dictionaries.
-Native policy fields `init_noise_std`, `actor_hidden_dims`, `critic_hidden_dims`,
-and `activation` are authoritative and resolved into the effective model config.
-Additional encoder/head settings live in `policy.model_config`.
-Algorithm parameters use the native `algorithm` dictionary. `ModelConfig`
-describes the additional network structure. Training and replay enter through
-the registered task and the original Gym scripts.
+The task passes native `runner`, `policy`, and `algorithm` dictionaries.
+All policy settings are flat fields on `Lite3PIECfgPPO.policy` and explicit
+`PIEActorCritic(num_actor_obs, num_critic_obs, num_actions, ...)` arguments,
+including encoder/head widths, `init_noise_std`, and actor/critic activation.
+Auxiliary weights belong to `Lite3PIECfgPPO.algorithm`. There is no runtime
+`ModelConfig` dataclass or duplicate `algorithm.model` alias.
+
+`utils/pie_config.py` converts legacy nested `policy.model_config` only at the
+runner/playback boundary. Version-4 saves still write the legacy-compatible
+training configuration and effective `model_config`; old and new code can read
+the same checkpoints. Missing legacy architecture fields use frozen v4 defaults.
+The model's module names, parameter registration order, and construction order
+are preserved for model and Adam state compatibility.
 
 Retained default architecture:
 
@@ -82,8 +96,7 @@ gradient is zero, while its bias and deeper network parameters can train.
 
 ## Logging, checkpoints, and validation
 
-The original console/TensorBoard reward logging stays in the native runner.
-PIE appends all five auxiliary losses, policy KL, gradient norm, learning rate,
+The PIE runner preserves the original console/TensorBoard reward logging and appends all five auxiliary losses, policy KL, gradient norm, learning rate,
 step reward, terrain levels, reset counts, and visual-memory/reuse statistics.
 The same iteration metrics are written to `metrics.jsonl`.
 
@@ -107,7 +120,11 @@ saved mode and disables both actuator and camera randomization. The optional
 rendering flag is selected by playback CLI rather than inherited from a saved
 config; existing v4 zero-mode checkpoints remain valid for resume.
 
-CPU checks exercise native runner ordering, default stock PPO behavior,
+CPU checks pin upstream file hashes and compare two updates against an independent
+pre-refactor `3f64242` fixture, including every weight, gradient, Adam moment,
+recurrent state, loss, learning rate, and RNG state. See
+[`PIE_REFACTOR_REFERENCE.md`](../tests/fixtures/PIE_REFACTOR_REFERENCE.md) for provenance
+and reproduction. Other checks exercise native runner ordering, stock PPO behavior,
 actor privacy, timeout bootstrap, recurrent resets/replay, joint gradients,
 dense/indexed visual equivalence, clipping/scheduling, logs, atomic checkpoints,
 and schema-4 resume. GPU simulation, 4096-environment memory use, throughput, and

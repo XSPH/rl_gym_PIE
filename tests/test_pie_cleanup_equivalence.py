@@ -17,7 +17,7 @@ from test_pie_observation_and_push import sensor
 BASELINE = json.loads((Path(__file__).parent / 'fixtures/pie_before_cleanup.json').read_text())
 
 
-def test_effective_nested_configuration_changes_only_blind_flat_experiment_fields():
+def test_effective_configuration_preserves_current_blind_flat_experiment():
     classes = load_native_classes()
     cfg = classes.config()
     expected = deepcopy(BASELINE['configuration'])
@@ -27,6 +27,11 @@ def test_effective_nested_configuration_changes_only_blind_flat_experiment_field
     expected['domain_rand']['randomize_camera'] = False
     expected['terrain'].update(curriculum=False, kinds=['flat'],
                                terrain_proportions=[1.0], max_init_terrain_level=0)
+    # Accepted experiment changes in 57bde6f/bd1fd2e, before this refactor.
+    expected['init_state']['pos'][2] = .31
+    expected['rewards'].update(only_positive_rewards=False, base_height_target=.3,
+                               soft_dof_pos_limit=.9)
+    expected['rewards']['scales'].update(torques=-1e-4, base_height=-1.)
     assert classes.helpers.class_to_dict(cfg) == expected
     assert not hasattr(cfg, 'pie')
     train = classes.train_config()

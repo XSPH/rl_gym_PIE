@@ -193,7 +193,7 @@ def test_original_logs_include_native_rewards_and_pie_metrics_once(tmp_path, cap
     assert learner.tot_timesteps == 9
 
 
-def test_stock_runner_still_trains_tensor_observations_without_pie_sensor_hooks():
+def test_stock_runner_still_trains_tensor_observations_without_pie_sensor_hooks(tmp_path):
     from rsl_rl.runners.on_policy_runner import OnPolicyRunner
     cfg = train_config(rollout=3)
     cfg["runner"].update(policy_class_name="ActorCritic", algorithm_class_name="PPO")
@@ -201,7 +201,7 @@ def test_stock_runner_still_trains_tensor_observations_without_pie_sensor_hooks(
                      "activation": "elu", "init_noise_std": 1.}
     del cfg["algorithm"]["estimation_weight"], cfg["algorithm"]["kl_weight"]
     env = TensorEnvironment()
-    learner = OnPolicyRunner(env, cfg, log_dir=None, device="cpu")
+    learner = OnPolicyRunner(env, cfg, log_dir=str(tmp_path), device="cpu")
     # A stock task has no multimodal API. Its native get_observations continues
     # to work through a saved direct callable, while sensor access raises.
     original = env.get_pie_observations
@@ -220,18 +220,19 @@ def test_stock_runner_still_trains_tensor_observations_without_pie_sensor_hooks(
     report = learner.learn(2)
     assert learner.current_learning_iteration == 2 and learner.tot_timesteps == 18
     assert not torch.equal(before, learner.alg.actor_critic.actor[0].weight)
-    assert report["iteration"] == 2
+    assert report is None
+    learner.writer.close()
 
 
 def test_real_task_registry_constructs_native_pie_runner_from_class_config():
-    from dataclasses import asdict
     from types import SimpleNamespace
     from native_cpu_helpers import load_native_classes
     from native_rsl_helpers import model_config
     classes = load_native_classes()
     registry = classes.registry()
     env_cfg, training = classes.config(), classes.train_config()
-    training.policy.model_config = asdict(model_config())
+    for name, value in model_config().items():
+        setattr(training.policy, name, value)
     training.algorithm.num_learning_epochs = training.algorithm.num_mini_batches = 1
     training.runner.num_steps_per_env = 3
     registry.register("lite3_pie", classes.task, env_cfg, training)
@@ -276,7 +277,7 @@ def test_parsed_native_config_numpy_fields_make_weights_only_safe_checkpoint(tmp
 
 
 def test_default_network_one_env_checkpoint_load_and_recurrent_inference(tmp_path):
-    from rsl_rl.modules.actor_critic_pie import ModelConfig
+    from rsl_rl.modules.actor_critic_pie import PIEActorCritic
     class FullEnvironment(TensorEnvironment):
         def __init__(self, count):
             super().__init__(count=count)
@@ -291,16 +292,16 @@ def test_default_network_one_env_checkpoint_load_and_recurrent_inference(tmp_pat
                     "critic": torch.cat((prop, velocity, heightmap), -1),
                     "targets": {"velocity": velocity, "foot_clearance": torch.zeros(self.num_envs, 4),
                                 "heightmap": heightmap}}
-    cfg = train_config(cfg=algorithm_config(), model=ModelConfig(), rollout=24)
+    cfg = train_config(cfg=algorithm_config(), model=dict(num_actor_obs=45, num_critic_obs=235, num_actions=12), rollout=24)
     training = PIEOnPolicyRunner(FullEnvironment(4), cfg, log_dir=None, device="cpu")
     with torch.no_grad():
-        training.alg.model.std.fill_(.64)
+        training.alg.actor_critic.std.fill_(.64)
     checkpoint = tmp_path / "native_default.pt"
     training.save(checkpoint)
     inference = PIEOnPolicyRunner(FullEnvironment(1), cfg, log_dir=None, device="cpu")
     inference.load(checkpoint, load_optimizer=False)
     assert inference.alg.num_mini_batches == 4
-    torch.testing.assert_close(inference.alg.model.std, torch.full((12,), .64))
+    torch.testing.assert_close(inference.alg.actor_critic.std, torch.full((12,), .64))
     policy = inference.get_inference_policy()
     first = policy(inference.env.get_observations())
     second = policy(inference.env.get_observations())
@@ -315,7 +316,7 @@ def test_inference_env_count_does_not_silently_reduce_training_minibatches():
     from rsl_rl.algorithms.ppo_pie import PIEPPO
     from rsl_rl.modules.actor_critic_pie import PIEActorCritic
     from native_rsl_helpers import collect_native, model_config
-    algorithm = PIEPPO(PIEActorCritic(model_config()), device="cpu", **algorithm_config())
+    algorithm = PIEPPO(PIEActorCritic(**model_config()), device="cpu", **algorithm_config())
     environment = TensorEnvironment(count=1, resets={1: (0, False)})
     collect_native(algorithm, environment, steps=2)
     with pytest.raises(ValueError, match="num_envs >= minibatches"):

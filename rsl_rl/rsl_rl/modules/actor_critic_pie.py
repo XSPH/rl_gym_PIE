@@ -1,96 +1,20 @@
 """PIE estimator and asymmetric actor-critic. No simulator imports."""
-from dataclasses import asdict, dataclass
-from typing import Tuple
 import torch
 from torch import nn
 from torch.distributions import Normal
 from torch.utils.checkpoint import checkpoint
 from .actor_critic import ActorCritic
 
-@dataclass
-class ModelConfig:
-    proprio_dim: int = 45
-    proprio_history: int = 10
-    depth_history: int = 2
-    action_dim: int = 12
-    heightmap_dim: int = 187
-    critic_dim: int = 235
-    token_dim: int = 128
-    gru_dim: int = 128
-    latent_dim: int = 16
-    map_latent_dim: int = 32
-    transformer_heads: int = 4
-    transformer_layers: int = 1
-    initial_std: float = 1.0
-    activation: str = "elu"
-    # Reproduction choices, with evidence/rationale in PIE_NETWORK.md.
-    proprio_hidden_dims: Tuple[int, ...] = (512, 256)
-    cnn_hidden_channels: Tuple[int, int] = (32, 64)
-    cnn_kernel_sizes: Tuple[int, int, int] = (5, 3, 3)
-    cnn_strides: Tuple[int, int, int] = (2, 2, 2)
-    cnn_paddings: Tuple[int, int, int] = (2, 1, 1)
-    visual_grid: Tuple[int, int] = (4, 4)
-    transformer_ffn_multiplier: int = 2
-    transformer_dropout: float = 0.0
-    actor_hidden_dims: Tuple[int, ...] = (512, 256, 128)
-    critic_hidden_dims: Tuple[int, ...] = (512, 256, 128)
-    successor_hidden_dims: Tuple[int, ...] = (128, 128)
-    height_decoder_hidden_dims: Tuple[int, ...] = (128, 128)
-
-    def __post_init__(self):
-        # YAML/JSON may deserialize tuples as lists; keep checkpoint comparison stable.
-        sequence_fields = ("proprio_hidden_dims", "cnn_hidden_channels", "cnn_kernel_sizes",
-                           "cnn_strides", "cnn_paddings", "visual_grid", "actor_hidden_dims",
-                           "critic_hidden_dims", "successor_hidden_dims", "height_decoder_hidden_dims")
-        for name in sequence_fields:
-            setattr(self, name, tuple(getattr(self, name)))
-        positive = (self.proprio_dim, self.proprio_history, self.depth_history, self.action_dim,
-                    self.heightmap_dim, self.critic_dim, self.token_dim, self.gru_dim,
-                    self.latent_dim, self.map_latent_dim, self.transformer_heads,
-                    self.transformer_layers, self.transformer_ffn_multiplier)
-        if any(value <= 0 for value in positive):
-            raise ValueError("PIE dimensions and layer counts must be positive")
-        if self.token_dim % self.transformer_heads:
-            raise ValueError("token_dim must be divisible by transformer_heads")
-        for name in sequence_fields:
-            values = getattr(self, name)
-            if not values or any(v < (0 if name == "cnn_paddings" else 1) for v in values):
-                raise ValueError("Invalid network dimensions in " + name)
-        expected_lengths = {"cnn_hidden_channels": 2, "cnn_kernel_sizes": 3,
-                            "cnn_strides": 3, "cnn_paddings": 3, "visual_grid": 2}
-        if any(len(getattr(self, name)) != length for name, length in expected_lengths.items()):
-            raise ValueError("PIE uses three CNN layers and a two-dimensional token grid")
-        if self.transformer_dropout != 0.0:
-            raise ValueError("PIE PPO replay requires transformer_dropout=0")
-        if self.initial_std <= 0:
-            raise ValueError("initial_std must be positive")
-
-    def validate_observation(self, obs, num_actions):
-        """Check the environment schema once before training or playback."""
-        observed = {
-            "proprio_dim": obs["proprio"].shape[-1],
-            "proprio_history": obs["proprio_history"].shape[1],
-            "depth_history": obs["depth"].shape[1],
-            "heightmap_dim": obs["targets"]["heightmap"].shape[-1],
-            "critic_dim": obs["critic"].shape[-1],
-            "action_dim": num_actions,
-        }
-        for name, actual in observed.items():
-            if getattr(self, name) != actual:
-                raise ValueError("PIE model/environment mismatch for {}: configured {}, observed {}".format(
-                    name, getattr(self, name), actual))
-        return self
-
-    @property
-    def token_count(self):
-        return 1 + self.visual_grid[0] * self.visual_grid[1]
 
 def mlp(input_dim, widths, output_dim):
     layers = []
     for width in widths:
-        layers += [nn.Linear(input_dim, width), nn.ELU()]
+        layers.append(nn.Linear(input_dim, width))
+        layers.append(nn.ELU())
         input_dim = width
-    return nn.Sequential(*layers, nn.Linear(input_dim, output_dim))
+    layers.append(nn.Linear(input_dim, output_dim))
+    return nn.Sequential(*layers)
+
 
 class PIEDepthFeatureCache:
     """Reuse deterministic CNN outputs while retaining every use's gradient.
@@ -143,55 +67,99 @@ class PIEActorCritic(ActorCritic):
     owns rollout state; explicit states are used only for minibatch replay.
     """
     is_recurrent = True
-    def __init__(self, num_actor_obs=None, num_critic_obs=None, num_actions=None,
-                 model_config=None, init_noise_std=None, actor_hidden_dims=None,
-                 critic_hidden_dims=None, activation=None):
-        # Accept the native v1.0.2 runner signature and the configuration helper.
-        if isinstance(num_actor_obs, ModelConfig):
-            cfg = num_actor_obs
-        else:
-            cfg = ModelConfig(**(model_config or {}))
-            for name, actual in (("proprio_dim", num_actor_obs),
-                                 ("critic_dim", num_critic_obs), ("action_dim", num_actions)):
-                if actual is not None and getattr(cfg, name) != actual:
-                    raise ValueError("PIE model/environment mismatch for " + name)
-        # Native policy fields are authoritative for actor/critic/exploration.
-        resolved = asdict(cfg)
-        for name, value in (("initial_std", init_noise_std), ("actor_hidden_dims", actor_hidden_dims),
-                            ("critic_hidden_dims", critic_hidden_dims), ("activation", activation)):
-            if value is not None:
-                resolved[name] = value
-        cfg = ModelConfig(**resolved)
-        estimate_dim = 3 + 4 + cfg.map_latent_dim + cfg.latent_dim
+
+    def __init__(self,
+                 num_actor_obs,
+                 num_critic_obs,
+                 num_actions,
+                 proprio_history=10,
+                 depth_history=2,
+                 heightmap_dim=187,
+                 token_dim=128,
+                 gru_dim=128,
+                 latent_dim=16,
+                 map_latent_dim=32,
+                 transformer_heads=4,
+                 transformer_layers=1,
+                 init_noise_std=1.0,
+                 activation='elu',
+                 proprio_hidden_dims=(512, 256),
+                 cnn_hidden_channels=(32, 64),
+                 cnn_kernel_sizes=(5, 3, 3),
+                 cnn_strides=(2, 2, 2),
+                 cnn_paddings=(2, 1, 1),
+                 visual_grid=(4, 4),
+                 transformer_ffn_multiplier=2,
+                 transformer_dropout=0.0,
+                 actor_hidden_dims=(512, 256, 128),
+                 critic_hidden_dims=(512, 256, 128),
+                 successor_hidden_dims=(128, 128),
+                 height_decoder_hidden_dims=(128, 128)):
+        self.num_actor_obs = num_actor_obs
+        self.proprio_history = proprio_history
+        self.depth_history = depth_history
+        self.num_actions = num_actions
+        self.heightmap_dim = heightmap_dim
+        self.num_critic_obs = num_critic_obs
+        self.token_dim = token_dim
+        self.gru_dim = gru_dim
+        self.latent_dim = latent_dim
+        self.map_latent_dim = map_latent_dim
+        self.transformer_heads = transformer_heads
+        self.transformer_layers = transformer_layers
+        self.init_noise_std = init_noise_std
+        self.activation = activation
+        self.proprio_hidden_dims = tuple(proprio_hidden_dims)
+        self.cnn_hidden_channels = tuple(cnn_hidden_channels)
+        self.cnn_kernel_sizes = tuple(cnn_kernel_sizes)
+        self.cnn_strides = tuple(cnn_strides)
+        self.cnn_paddings = tuple(cnn_paddings)
+        self.visual_grid = tuple(visual_grid)
+        self.transformer_ffn_multiplier = transformer_ffn_multiplier
+        self.transformer_dropout = transformer_dropout
+        self.actor_hidden_dims = tuple(actor_hidden_dims)
+        self.critic_hidden_dims = tuple(critic_hidden_dims)
+        self.successor_hidden_dims = tuple(successor_hidden_dims)
+        self.height_decoder_hidden_dims = tuple(height_decoder_hidden_dims)
+        self._validate_dimensions()
+
+        # Policy and value networks
+        estimate_dim = 3 + 4 + self.map_latent_dim + self.latent_dim
         super().__init__(
-            cfg.proprio_dim + estimate_dim, cfg.critic_dim, cfg.action_dim,
-            actor_hidden_dims=list(cfg.actor_hidden_dims), critic_hidden_dims=list(cfg.critic_hidden_dims),
-            activation=cfg.activation, init_noise_std=cfg.initial_std)
-        self.cfg = cfg
-        self.proprio_encoder = mlp(cfg.proprio_dim * cfg.proprio_history,
-                                  cfg.proprio_hidden_dims, cfg.token_dim)
-        channels = (cfg.depth_history,) + cfg.cnn_hidden_channels + (cfg.token_dim,)
+            self.num_actor_obs + estimate_dim, self.num_critic_obs, self.num_actions,
+            actor_hidden_dims=list(self.actor_hidden_dims), critic_hidden_dims=list(self.critic_hidden_dims),
+            activation=self.activation, init_noise_std=self.init_noise_std)
+        # Proprioceptive encoder
+        self.proprio_encoder = mlp(self.num_actor_obs * self.proprio_history,
+                                  self.proprio_hidden_dims, self.token_dim)
+
+        # Depth encoder
+        channels = (self.depth_history,) + self.cnn_hidden_channels + (self.token_dim,)
         convolution = []
         for index in range(3):
             convolution.extend((
-                nn.Conv2d(channels[index], channels[index + 1], cfg.cnn_kernel_sizes[index],
-                          stride=cfg.cnn_strides[index], padding=cfg.cnn_paddings[index]),
+                nn.Conv2d(channels[index], channels[index + 1], self.cnn_kernel_sizes[index],
+                          stride=self.cnn_strides[index], padding=self.cnn_paddings[index]),
                 nn.ELU()))
-        self.depth_encoder = nn.Sequential(*convolution, nn.AdaptiveAvgPool2d(cfg.visual_grid))
-        self.position = nn.Parameter(torch.zeros(1, cfg.token_count, cfg.token_dim))
+        self.depth_encoder = nn.Sequential(*convolution, nn.AdaptiveAvgPool2d(self.visual_grid))
+
+        # Spatial and temporal fusion
+        self.position = nn.Parameter(torch.zeros(1, self.token_count, self.token_dim))
         layer = nn.TransformerEncoderLayer(
-            cfg.token_dim, cfg.transformer_heads, cfg.token_dim * cfg.transformer_ffn_multiplier,
-            dropout=cfg.transformer_dropout, batch_first=True, activation="gelu",
+            self.token_dim, self.transformer_heads, self.token_dim * self.transformer_ffn_multiplier,
+            dropout=self.transformer_dropout, batch_first=True, activation="gelu",
             layer_norm_eps=1e-5, norm_first=False)
-        self.transformer = nn.TransformerEncoder(layer, cfg.transformer_layers)
-        self.gru = nn.GRUCell(cfg.token_count * cfg.token_dim, cfg.gru_dim)
-        self.velocity_head = nn.Linear(cfg.gru_dim, 3)
-        self.clearance_head = nn.Linear(cfg.gru_dim, 4)
-        self.map_head = nn.Linear(cfg.gru_dim, cfg.map_latent_dim)
-        self.mu_head = nn.Linear(cfg.gru_dim, cfg.latent_dim)
-        self.logvar_head = nn.Linear(cfg.gru_dim, cfg.latent_dim)
-        self.successor_decoder = mlp(estimate_dim, cfg.successor_hidden_dims, cfg.proprio_dim)
-        self.height_decoder = mlp(cfg.map_latent_dim, cfg.height_decoder_hidden_dims, cfg.heightmap_dim)
+        self.transformer = nn.TransformerEncoder(layer, self.transformer_layers)
+        self.gru = nn.GRUCell(self.token_count * self.token_dim, self.gru_dim)
+
+        # Auxiliary prediction heads and decoders
+        self.velocity_head = nn.Linear(self.gru_dim, 3)
+        self.clearance_head = nn.Linear(self.gru_dim, 4)
+        self.map_head = nn.Linear(self.gru_dim, self.map_latent_dim)
+        self.mu_head = nn.Linear(self.gru_dim, self.latent_dim)
+        self.logvar_head = nn.Linear(self.gru_dim, self.latent_dim)
+        self.successor_decoder = mlp(estimate_dim, self.successor_hidden_dims, self.num_actor_obs)
+        self.height_decoder = mlp(self.map_latent_dim, self.height_decoder_hidden_dims, self.heightmap_dim)
         for label, module in (
             ("Proprio Encoder MLP", self.proprio_encoder),
             ("Depth Encoder CNN", self.depth_encoder),
@@ -210,8 +178,94 @@ class PIEActorCritic(ActorCritic):
         self._hidden = None
         self._visual_cache = PIEDepthFeatureCache()
 
+    def _validate_dimensions(self):
+        sequence_fields = (
+            "proprio_hidden_dims", "cnn_hidden_channels", "cnn_kernel_sizes", "cnn_strides",
+            "cnn_paddings", "visual_grid", "actor_hidden_dims", "critic_hidden_dims",
+            "successor_hidden_dims", "height_decoder_hidden_dims")
+        positive = (self.num_actor_obs, self.proprio_history, self.depth_history, self.num_actions,
+                    self.heightmap_dim, self.num_critic_obs, self.token_dim, self.gru_dim,
+                    self.latent_dim, self.map_latent_dim, self.transformer_heads,
+                    self.transformer_layers, self.transformer_ffn_multiplier)
+        if any(value <= 0 for value in positive):
+            raise ValueError("PIE dimensions and layer counts must be positive")
+        if self.token_dim % self.transformer_heads:
+            raise ValueError("token_dim must be divisible by transformer_heads")
+        for name in sequence_fields:
+            values = getattr(self, name)
+            if not values or any(v < (0 if name == "cnn_paddings" else 1) for v in values):
+                raise ValueError("Invalid network dimensions in " + name)
+        expected_lengths = {"cnn_hidden_channels": 2, "cnn_kernel_sizes": 3,
+                            "cnn_strides": 3, "cnn_paddings": 3, "visual_grid": 2}
+        if any(len(getattr(self, name)) != length for name, length in expected_lengths.items()):
+            raise ValueError("PIE uses three CNN layers and a two-dimensional token grid")
+        if self.transformer_dropout != 0.0:
+            raise ValueError("PIE PPO replay requires transformer_dropout=0")
+        if self.init_noise_std <= 0:
+            raise ValueError("init_noise_std must be positive")
+
+    def validate_observation(self, obs, num_actions):
+        """Check the environment schema once before training or playback."""
+        observed = {
+            "num_actor_obs": obs["proprio"].shape[-1],
+            "proprio_history": obs["proprio_history"].shape[1],
+            "depth_history": obs["depth"].shape[1],
+            "heightmap_dim": obs["targets"]["heightmap"].shape[-1],
+            "num_critic_obs": obs["critic"].shape[-1],
+            "num_actions": num_actions,
+        }
+        for name, actual in observed.items():
+            if getattr(self, name) != actual:
+                raise ValueError("PIE model/environment mismatch for {}: configured {}, observed {}".format(
+                    name, getattr(self, name), actual))
+        return self
+
+    @property
+    def token_count(self):
+        return 1 + self.visual_grid[0] * self.visual_grid[1]
+
+    def get_model_config(self):
+        """Return the effective architecture in the version-4 checkpoint schema."""
+        return {
+            "proprio_dim": self.num_actor_obs,
+            "proprio_history": self.proprio_history,
+            "depth_history": self.depth_history,
+            "action_dim": self.num_actions,
+            "heightmap_dim": self.heightmap_dim,
+            "critic_dim": self.num_critic_obs,
+            "token_dim": self.token_dim,
+            "gru_dim": self.gru_dim,
+            "latent_dim": self.latent_dim,
+            "map_latent_dim": self.map_latent_dim,
+            "transformer_heads": self.transformer_heads,
+            "transformer_layers": self.transformer_layers,
+            "initial_std": self.init_noise_std,
+            "activation": self.activation,
+            "proprio_hidden_dims": self.proprio_hidden_dims,
+            "cnn_hidden_channels": self.cnn_hidden_channels,
+            "cnn_kernel_sizes": self.cnn_kernel_sizes,
+            "cnn_strides": self.cnn_strides,
+            "cnn_paddings": self.cnn_paddings,
+            "visual_grid": self.visual_grid,
+            "transformer_ffn_multiplier": self.transformer_ffn_multiplier,
+            "transformer_dropout": self.transformer_dropout,
+            "actor_hidden_dims": self.actor_hidden_dims,
+            "critic_hidden_dims": self.critic_hidden_dims,
+            "successor_hidden_dims": self.successor_hidden_dims,
+            "height_decoder_hidden_dims": self.height_decoder_hidden_dims,
+        }
+
+    def begin_rollout(self, num_envs):
+        if self._hidden is None:
+            self._hidden = self.initial_state(num_envs)
+        self._visual_cache = PIEDepthFeatureCache()
+
+    def set_hidden_states(self, hidden_states):
+        self._hidden = hidden_states.detach()
+        self._visual_cache = PIEDepthFeatureCache()
+
     def initial_state(self, batch_size, device=None):
-        return torch.zeros(batch_size, self.cfg.gru_dim,
+        return torch.zeros(batch_size, self.gru_dim,
                            device=device or self.std.device, dtype=self.std.dtype)
 
     def encode_depth(self, depth):
@@ -227,10 +281,10 @@ class PIEActorCritic(ActorCritic):
     def encode(self, obs, hidden, reset_mask=None, visual_features=None):
         if reset_mask is not None:
             hidden = hidden * (~reset_mask.bool()).unsqueeze(-1)
-        prop = self.proprio_encoder(obs["proprio_history"].flatten(1)).unsqueeze(1)
+        proprio_features = self.proprio_encoder(obs["proprio_history"].flatten(1)).unsqueeze(1)
         visual = self.encode_depth(obs["depth"]) if visual_features is None else visual_features
-        depth = visual.flatten(2).transpose(1, 2)
-        tokens = self.transformer(torch.cat((prop, depth), dim=1) + self.position)
+        depth_tokens = visual.flatten(2).transpose(1, 2)
+        tokens = self.transformer(torch.cat((proprio_features, depth_tokens), dim=1) + self.position)
         hidden = self.gru(tokens.flatten(1), hidden)
         estimates = {
             "velocity": self.velocity_head(hidden),
@@ -259,9 +313,6 @@ class PIEActorCritic(ActorCritic):
             critic_observations = critic_observations["critic"]
         return self.critic(critic_observations)
 
-    def value(self, obs):
-        return self.evaluate(obs).squeeze(-1)
-
     def _rollout_distribution(self, observations, masks=None, hidden_states=None):
         if hidden_states is None:
             if self._hidden is None or self._hidden.shape[0] != observations["proprio"].shape[0]:
@@ -286,7 +337,7 @@ class PIEActorCritic(ActorCritic):
         """Explicit recurrent replay without replacing the live rollout state."""
         _, hidden, estimates = self.policy_distribution(obs, hidden, reset_mask, visual_features)
         return (self.get_actions_log_prob(actions), self.entropy,
-                self.value(obs), hidden, estimates)
+                self.evaluate(obs).squeeze(-1), hidden, estimates)
 
     def get_hidden_states(self):
         return self._hidden, None

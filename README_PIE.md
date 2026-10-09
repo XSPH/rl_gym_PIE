@@ -122,13 +122,15 @@ play 的 `--show_depth` 设置 `camera.render_for_debug=True`，启用真实相�
 策略输入继续为零。此诊断开关不参与视觉模式匹配。
 原版摩擦、附加质量和推扰由各自开关控制。正式规模仍为 4096/24/5/4/15000/500。
 
-`train.py → task_registry → OnPolicyRunner.learn → PPO.act → LeggedRobot.step`
+`train.py → task_registry → PIEOnPolicyRunner.learn → PIEPPO.act → LeggedRobot.step`
 使用原版接口。环境返回 `obs, privileged_obs, rewards, dones, extras`。
 
 - `LeggedRobot.step`、奖励计算/注册/episode 累计和 `BaseTask.reset` 直接复用。
 - Lite3 子类负责 45 维观测、235 维 Critic、PD 延迟与随机化、传感器和任务重置扩展。
 - `get_pie_observations()` 提供本体历史、深度帧与索引；`extras['pie']` 提供重置前标签和诊断。
-- 原版 runner 的采样/记账/日志流程与 PPO 的损失、KL 调度、优化器和 GAE 复用；PIE 扩展 recurrent 多模态批次及辅助损失。
+- 公共 `ppo.py` 和 `on_policy_runner.py` 已完整还原为 v1.0.2 上游文件。PIE 子类自己管理循环和日志，保留原有 PPO 公式、KL 调度和优化顺序；GAE 继续继承原版实现。
+- 网络参数直接写在 `Lite3PIECfgPPO.policy`，传入显式构造参数。旧 v4 的 `policy.model_config` 只在 runner/play 入口转换，已有模型与 Adam 状态保持兼容。
+- `PIERolloutStorage.Transition` 和时间×环境张量保存采样数据；完整环境轨迹参与 GRU 重放。详见 [RSL 扩展说明](rsl_rl/PIE_EXTENSION.md)。
 - 本体 10 帧、深度 2 帧经 MLP/CNN → Transformer → GRU，估计速度、四足离地高度、地图潜变量及 VAE 潜变量。Actor 不读取特权真值。
 - 逻辑深度更新为 10 Hz，固定延迟 100 ms、控制 50 Hz。启用相机时跟随 torso，固定安装位置 `[0.25,0,0.06]`、俯角 30°、FOV 87°，深度噪声及椒盐噪声为 0。
 - 射线当前只查询静态地形，不包含机器人自身或其他动态物体的遮挡。
@@ -137,9 +139,9 @@ play 的 `--show_depth` 设置 `camera.render_for_debug=True`，启用真实相�
 ## 奖励、地形与命令
 
 奖励由原版 `_prepare_reward_function()` 注册、`compute_reward()` 计算，
-权重唯一来源是 `Lite3PIECfg.rewards.scales`。原版已有八项直接复用，
+权重唯一来源是 `Lite3PIECfg.rewards.scales`。原版已有奖励函数直接复用，
 只新增 `joint_power` 和 `smoothness` 两项函数。所有项按控制 `dt` 缩放一次，
-保留原版 `only_positive_rewards=True`。
+沿用当前实验的 `only_positive_rewards=False`、目标机身高度 `0.3` 米和初始高度 `0.31` 米。
 
 | 奖励配置名 | 权重 |
 | --- | ---: |
@@ -153,6 +155,8 @@ play 的 `--show_depth` 设置 `camera.render_for_debug=True`，启用真实相�
 | collision | -10 |
 | action_rate | -0.01 |
 | smoothness | -0.01 |
+| torques | -1e-4 |
+| base_height | -1 |
 
 地形采用原版 Terrain 网格：10 行、20 列、8×8 米地块、中心出生点，
 全部地块使用 `kinds=['flat']`、比例 `[1.0]`，关闭地形课程，初始等级为 0。

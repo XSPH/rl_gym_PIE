@@ -1,8 +1,8 @@
 # rl_gym_PIE
 
-`refactor/pie-native-training`：在 Unitree RL Gym 原版环境主循环和 rsl_rl v1.0.2 训练循环中实现 Lite3 PIE，使用 Warp 深度相机。
+`refactor/pie-rsl-native-style`：在 Unitree RL Gym 和 rsl_rl v1.0.2 上实现 Lite3 PIE。公共 PPO/Runner 保持上游原文件，PIE 子类管理多模态循环和辅助学习；当前默认实验为平地、零深度输入。
 
-[PIE 使用说明](README_PIE.md) · [网络参数](PIE_NETWORK.md) · [训练流程改动](docs/native_training_refactor.md) · [模块收拢与检查](docs/pie_module_cleanup.md) · [发布范围与完整性](PUBLICATION.md)
+[PIE 使用说明](README_PIE.md) · [网络参数](PIE_NETWORK.md) · [RSL 扩展说明](rsl_rl/PIE_EXTENSION.md) · [数值对照检查](tests/fixtures/PIE_REFACTOR_REFERENCE.md) · [发布范围与完整性](PUBLICATION.md)
 
 本分支只接受 version 4 模型；环境配置统一在 `lite3_config.py`，工具位于原版 `utils`。验证范围见改动记录；以下保留宇树上游项目说明。
 
