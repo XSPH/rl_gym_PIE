@@ -54,7 +54,7 @@ def assert_blind_inputs(task):
     return obs
 
 
-def test_visual_flat_defaults_keep_training_scale_and_all_flat_geometry():
+def test_visual_parkour_defaults_keep_training_scale_and_start_at_easiest_level():
     classes = load_native_classes()
     cfg, training = classes.config(), classes.train_config()
     assert cfg.camera.input_mode == 'depth' and cfg.domain_rand.randomize_camera
@@ -70,16 +70,17 @@ def test_visual_flat_defaults_keep_training_scale_and_all_flat_geometry():
             training.algorithm.num_learning_epochs, training.algorithm.num_mini_batches,
             training.runner.max_iterations, training.runner.save_interval) == (4096, 24, 5, 4, 15000, 500)
     terrain = classes.terrain(cfg.terrain, cfg.env.num_envs, seed=4)
-    assert terrain.atlas.kinds == ['flat'] * 20
+    assert terrain.atlas.kinds == [kind for kind, count in zip(cfg.terrain.kinds, (4, 3, 3, 4, 3, 3))
+                                  for _ in range(count)]
     assert terrain.env_origins.shape == (10, 20, 3)
-    assert np.count_nonzero(terrain.height_field_raw) == 0
-    assert np.count_nonzero(terrain.env_origins[..., 2]) == 0
+    assert np.count_nonzero(terrain.height_field_raw) > 0
+    assert np.count_nonzero(terrain.env_origins[..., 2]) > 0
     task = classes.task.__new__(classes.task)
     task.cfg, task.device, task.num_envs = cfg, 'cpu', cfg.env.num_envs
     task.terrain_sampler = classes.sampler(terrain.atlas, 'cpu')
     task._get_env_origins()
     assert torch.count_nonzero(task.terrain_levels) == 0
-    assert not cfg.terrain.curriculum
+    assert cfg.terrain.curriculum
 
 
 @pytest.mark.parametrize('mode', ['', 'blind', 'DEPTH', None, 0])
@@ -344,7 +345,7 @@ def test_play_restores_mode_and_full_saved_config_before_runner_load(mode, tmp_p
     target.load(path, load_optimizer=False)
 
 
-def test_existing_v4_without_new_fields_plays_depth_and_cannot_resume_blind(tmp_path):
+def test_checkpoint_without_explicit_camera_mode_is_rejected_for_playback(tmp_path):
     classes = load_native_classes()
     path = tmp_path / 'existing_v4.pt'
     mode_runner('depth').save(path)
@@ -353,13 +354,8 @@ def test_existing_v4_without_new_fields_plays_depth_and_cannot_resume_blind(tmp_
     del saved['environment_cfg']['camera']['render_for_debug']
     del saved['environment_cfg']['domain_rand']['randomize_camera']
     torch.save(saved, path)
-    restored, _ = classes.helpers.restore_playback_config(classes.config(), saved)
-    assert restored.camera.input_mode == 'depth'
-    assert not restored.domain_rand.randomize_camera
-    assert not restored.camera.render_for_debug
-    visual = mode_runner('depth')
-    visual.env.cfg = restored
-    visual.load(path, load_optimizer=False)
+    with pytest.raises(ValueError, match='camera.input_mode'):
+        classes.helpers.restore_playback_config(classes.config(), saved)
     with pytest.raises(ValueError, match='camera.input_mode'):
         mode_runner('zero').load(path)
 

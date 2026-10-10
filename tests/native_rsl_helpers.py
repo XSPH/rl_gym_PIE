@@ -1,5 +1,7 @@
 """CPU-only native VecEnv fixture and collection using actual RSL entry points."""
 
+from types import SimpleNamespace
+
 import torch
 
 from rsl_rl.algorithms.ppo_pie import PIEPPO
@@ -52,7 +54,7 @@ class TensorEnvironment:
         self.episode_length_buf = torch.zeros(count, dtype=torch.long)
         self.max_episode_length = 1000
         self.terrain_levels = torch.arange(count, dtype=torch.long)
-        self.cfg = type("EnvironmentConfig", (), {"seed": 1})()
+        self.cfg = SimpleNamespace(seed=1, camera=SimpleNamespace(input_mode='depth'))
 
     def get_pie_observations(self):
         prop = torch.arange(self.count * 3, dtype=torch.get_default_dtype()).reshape(self.count, 3)

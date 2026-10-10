@@ -14,6 +14,12 @@ def play(args):
     if show_depth and args.task != "lite3_pie":
         raise ValueError("--show_depth is available for lite3_pie playback")
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
+    if getattr(args, "terrain_preview", False):
+        if args.task != "lite3_pie":
+            raise ValueError("--terrain_preview is available for lite3_pie")
+        from legged_gym.utils.terrain_preview import preview_terrain
+        preview_terrain(env_cfg, args)
+        return
     if args.task == "lite3_pie":
         import json
         from legged_gym.utils.helpers import restore_playback_config

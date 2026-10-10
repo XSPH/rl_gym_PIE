@@ -1,5 +1,6 @@
 """Only the native branch's schema4 configuration is accepted for playback."""
 import pytest
+import numpy as np
 
 from native_cpu_helpers import class_to_dict, load_native_classes
 def restore_playback_config(*args):
@@ -48,6 +49,34 @@ def test_playback_disables_randomization_without_changing_saved_reward_scales():
     assert not cfg.domain_rand.randomize_pie
     assert class_to_dict(cfg.rewards) == snapshot["rewards"]
     assert class_to_dict(training) == snapshot
+
+
+def test_playback_freezes_curriculum_without_randomizing_saved_graded_map():
+    classes = load_native_classes()
+    training = classes.config()
+    snapshot = class_to_dict(training)
+    playback, _ = restore_playback_config(training, {
+        "pie_checkpoint_version": 4, "environment_cfg": snapshot})
+    assert not playback.terrain.curriculum
+    source = classes.terrain(training.terrain, 4, seed=4)
+    restored = classes.terrain(playback.terrain, 4, seed=4)
+    np.testing.assert_array_equal(restored.height_field_raw, source.height_field_raw)
+    np.testing.assert_array_equal(restored.vertices, source.vertices)
+    np.testing.assert_array_equal(restored.triangles, source.triangles)
+    assert restored.atlas.kinds == source.atlas.kinds
+
+
+def test_current_flat_configuration_generates_rough_flat_map_with_curriculum_disabled():
+    classes = load_native_classes()
+    snapshot = class_to_dict(classes.config())
+    snapshot["terrain"].update(curriculum=False, kinds=["flat"],
+                                terrain_proportions=[1.0])
+    playback, _ = restore_playback_config(classes.config(), {
+        "pie_checkpoint_version": 4, "environment_cfg": snapshot})
+    terrain = classes.terrain(playback.terrain, 4, seed=4)
+    assert terrain.atlas.kinds == ["flat"] * 20
+    assert np.count_nonzero(terrain.height_field_raw) > 0
+    assert np.abs(terrain.height_field_raw).max() * playback.terrain.vertical_scale <= playback.terrain.roughness
 
 
 @pytest.mark.parametrize("version", [None, 1, 2, 3, 5])

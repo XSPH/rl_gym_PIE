@@ -15,8 +15,7 @@ def test_native_grid_plateau_collision_vertices_and_labels_agree():
     atlas = terrain.atlas
     assert atlas.triangles.max() < len(atlas.vertices)
     sampler = classes.sampler(atlas, "cpu")
-    assert terrain.env_origins.shape == (10, 20, 3)
-    np.testing.assert_array_equal(terrain.env_origins[:, :, 2], 0)
+    assert terrain.env_origins.shape == (10, cfg.terrain.num_cols, 3)
     assert len(set(atlas.kinds)) == 5
     for level in (0, cfg.terrain.num_rows - 1):
         for column, kind in enumerate(atlas.kinds):
@@ -28,62 +27,42 @@ def test_native_grid_plateau_collision_vertices_and_labels_agree():
             actual = sampler.sample(points)
             first = terrain.border + level * count
             col = terrain.border + column * terrain.width_per_env_pixels + terrain.width_per_env_pixels // 2
-            expected = atlas.heights[first:first+count, col] * cfg.terrain.vertical_scale
+            expected = np.minimum(np.minimum(atlas.heights[first:first+count, col],
+                                             atlas.heights[first+1:first+count+1, col]),
+                                  atlas.heights[first:first+count, col+1]).astype(np.float32) * np.float32(cfg.terrain.vertical_scale)
             np.testing.assert_allclose(actual.numpy()[0], expected, rtol=0, atol=1e-7)
-            assert np.all(expected[24:56] == 0)  # 3.2m central spawn platform
+            origin = torch.tensor(terrain.env_origins[level, column], dtype=torch.float32).view(1, 1, 3)
+            # WMP climb explicitly keeps origin Z=0 despite ground noise.
+            allowance = cfg.terrain.roughness if kind == 'step' else 0.0
+            assert sampler.sample(origin).item() <= origin[0, 0, 2].item() + allowance + 1e-6
             mesh_z = np.unique(atlas.vertices[:, 2])
-            assert all(np.isclose(value, mesh_z, rtol=0, atol=1e-7).any()
+            assert all(np.isclose(value, mesh_z, rtol=0, atol=1e-6).any()
                        for value in np.unique(expected))
     outside = torch.tensor([[[-1000., -1000., 0.]]])
     assert sampler.sample(outside).item() == 0
 
 
-def test_mesh_faces_cover_surface_and_only_exposed_cliffs_with_outward_normals():
+def test_mesh_uses_native_heightfield_vertices_and_triangle_construction():
     classes = load_native_classes()
     cfg = original_visual_config(classes)
     terrain = classes.terrain(cfg.terrain, 4096, seed=4)
     vertices, triangles, heights = terrain.vertices, terrain.triangles, terrain.height_field_raw
-    normals = np.cross(vertices[triangles[:, 1]] - vertices[triangles[:, 0]],
-                       vertices[triangles[:, 2]] - vertices[triangles[:, 0]])
-    assert (np.linalg.norm(normals, axis=-1) > 0).all()
-    quads = vertices.reshape(-1, 4, 3)
-    assert len(triangles) == 2 * len(quads)
-    bottom_units = int(heights.min()) - int(np.ceil(.2 / cfg.terrain.vertical_scale))
-    below = bottom_units * cfg.terrain.vertical_scale
-    bottom_count, wall_count = 0, 0
-    def cell(coordinate):
-        return int(np.floor((coordinate + cfg.terrain.border_size) / cfg.terrain.horizontal_scale))
-    for quad, normal in zip(quads, normals[::2]):
-        midpoint = quad.mean(axis=0)
-        if np.ptp(quad[:, 2]) == 0:
-            if normal[2] < 0:
-                bottom_count += 1
-                np.testing.assert_allclose(quad[:, 2], below, atol=1e-7, rtol=0)
-            else:
-                assert normal[2] > 0
-                expected = heights[cell(midpoint[0]), cell(midpoint[1])] * cfg.terrain.vertical_scale
-                np.testing.assert_allclose(quad[:, 2], expected, atol=1e-7, rtol=0)
-            continue
-        wall_count += 1
-        axis = 0 if np.ptp(quad[:, 0]) == 0 else 1
-        assert np.ptp(quad[:, axis]) == 0
-        boundary = int(round((midpoint[axis] + cfg.terrain.border_size) / cfg.terrain.horizontal_scale))
-        side = cell(midpoint[1-axis])
-        if axis == 0:
-            before = heights[boundary-1, side] if boundary else bottom_units
-            after = heights[boundary, side] if boundary < heights.shape[0] else bottom_units
-        else:
-            before = heights[side, boundary-1] if boundary else bottom_units
-            after = heights[side, boundary] if boundary < heights.shape[1] else bottom_units
-        assert before != after
-        expected = np.array([min(before, after), max(before, after)]) * cfg.terrain.vertical_scale
-        actual = np.array([quad[:, 2].min(), quad[:, 2].max()])
-        np.testing.assert_allclose(actual, expected, atol=1e-7, rtol=0)
-        assert np.sign(normal[axis]) == np.sign(int(before) - int(after))
-    assert bottom_count == 1 and wall_count > 0
+    nx, ny = heights.shape
+    assert vertices.shape == (nx * ny, 3)
+    assert triangles.shape == (2 * (nx-1) * (ny-1), 3)
+    np.testing.assert_allclose(vertices[:, 2], heights.flatten() * cfg.terrain.vertical_scale,
+                               rtol=0, atol=1e-6)
+    np.testing.assert_array_equal(triangles[:2], [[0, ny+1, 1], [0, ny, ny+1]])
+    # Native slope-threshold correction shifts XY vertices by whole cells.
+    base_x, base_y = np.meshgrid(np.arange(nx), np.arange(ny), indexing='ij')
+    shift_x = (vertices[:, 0] + cfg.terrain.border_size) / cfg.terrain.horizontal_scale - base_x.flatten()
+    shift_y = (vertices[:, 1] + cfg.terrain.border_size) / cfg.terrain.horizontal_scale - base_y.flatten()
+    np.testing.assert_allclose(shift_x, np.rint(shift_x), atol=1e-3, rtol=0)
+    np.testing.assert_allclose(shift_y, np.rint(shift_y), atol=1e-3, rtol=0)
+    assert np.abs(shift_x).max() > 0.9
 
 
-def test_distance_curriculum_updates_origins_and_skips_initial_reset():
+def test_progress_curriculum_updates_origins_and_skips_initial_reset():
     classes = load_native_classes()
     task = state(classes.task, count=4)
     task.cfg = classes.config()
@@ -98,11 +77,52 @@ def test_distance_curriculum_updates_origins_and_skips_initial_reset():
     task.root_states[:, 0] += torch.tensor([4.5, 1., 0., 4.5])
     task.commands[:, 0] = .5
     task.episode_length_buf[:] = torch.tensor([10, 10, 0, 10])
+    task._episode_steps = task.episode_length_buf.clone()
     task._update_terrain_curriculum(torch.arange(4))
     assert task.terrain_levels[:3].tolist() == [3, 1, 0]
     assert 0 <= task.terrain_levels[3] < 10
     torch.testing.assert_close(task.env_origins,
                                task.terrain_origins[task.terrain_levels, task.terrain_types])
+
+
+def test_default_parkour_map_has_easy_and_hard_obstacles_with_wmp_dimensions():
+    classes = load_native_classes()
+    cfg = classes.config()
+    terrain = classes.terrain(cfg.terrain, 4096, seed=4)
+    size = terrain.length_per_env_pixels
+    for column, kind in enumerate(terrain.atlas.kinds):
+        patches = []
+        for row in (0, cfg.terrain.num_rows - 1):
+            x = terrain.border + row * size
+            y = terrain.border + column * terrain.width_per_env_pixels
+            patches.append(terrain.height_field_raw[x:x+size, y:y+size]
+                           * cfg.terrain.vertical_scale)
+        easy, hard = patches
+        if kind == 'flat':
+            assert np.abs(easy).max() <= cfg.terrain.roughness
+            assert np.abs(hard).max() <= cfg.terrain.roughness
+        elif kind == 'gap':
+            floor = cfg.terrain.gap_floor_units * cfg.terrain.vertical_scale
+            # Count gaps along the channel, excluding the surrounding pit.
+            assert (easy[:, size//2] < floor/2).sum() < (hard[:, size//2] < floor/2).sum()
+            assert abs(hard.min() - floor) <= cfg.terrain.roughness + 1e-6
+            np.testing.assert_allclose(terrain.env_origins[:, column, 0], np.arange(10) * 8 + 4)
+        elif kind == 'slope':
+            assert np.abs(easy).max() <= cfg.terrain.roughness
+            assert np.abs(hard).max() > np.abs(easy).max()
+        elif kind == 'stairs':
+            # Native pyramid stairs derive the number of risers from tile size.
+            assert len(np.unique(np.abs(easy))) > 5
+            assert np.abs(hard).max() > np.abs(easy).max()
+            assert np.diff(np.unique(np.abs(hard))).max() <= .215 + 1e-6
+        elif kind == 'step':
+            assert abs(easy.max() - cfg.terrain.min_step) <= cfg.terrain.roughness + 1e-6
+            assert abs(hard.max() - cfg.terrain.max_step) <= cfg.terrain.roughness + 1e-6
+            assert hard[-1, size//2] >= cfg.terrain.max_step - cfg.terrain.roughness
+            np.testing.assert_allclose(terrain.env_origins[:, column, 0], np.arange(10) * 8 + 1)
+        else:
+            np.testing.assert_allclose(easy.max(), cfg.terrain.min_hurdle, atol=1e-6)
+            np.testing.assert_allclose(hard.max(), cfg.terrain.max_hurdle, atol=1e-6)
 
 
 def test_native_root_reset_adds_base_height_exactly_once():
@@ -117,6 +137,17 @@ def test_native_root_reset_adds_base_height_exactly_once():
     task._reset_root_states(torch.tensor([0, 1]))
     torch.testing.assert_close(task.root_states[:2, 2], torch.tensor([.3, 1.05]))
     assert recorded[0].dtype == torch.int32 and recorded[0].tolist() == [0, 1]
+
+
+def test_base_height_reward_excludes_neighboring_pits_for_all_terrain_groups():
+    classes = load_native_classes()
+    task = state(classes.task)
+    task.cfg = classes.config()
+    task.env_origins = torch.zeros(3, 3)
+    task.root_states[:, 2] = .3
+    # Include a robot originally from a flat column and a scan fully over a pit.
+    task._scan_ground_heights = lambda: torch.tensor([[0., -5., -4.95], [0., 0., 0.], [-5., -5., -5.]])
+    torch.testing.assert_close(task._reward_base_height(), torch.zeros(3), atol=1e-7, rtol=0)
 
 
 def test_asset_complete_joint_order_and_stand_pose():

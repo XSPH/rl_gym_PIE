@@ -30,6 +30,10 @@ def endpoints(tmp_path, monkeypatch):
         git(repo, 'add', '.')
         git(repo, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid',
             'commit', '-qm', 'initial')
+    # Independently created commits can differ when this loop crosses a
+    # second boundary. Establish the same history, as on a real cloned remote.
+    git(remote, 'fetch', '-q', str(source), 'HEAD')
+    git(remote, 'reset', '-q', '--hard', 'FETCH_HEAD')
     # The stub executes SSH's remote shell command locally. rsync itself and
     # all Git/file/backup operations are real, including paths with spaces.
     bin_dir = tmp_path / 'bin'

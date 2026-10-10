@@ -3,11 +3,11 @@ from copy import deepcopy
 
 
 def depth_input_mode(camera_cfg):
-    """Missing fields in existing version-4 checkpoints mean real depth."""
+    """Require the explicit camera mode of the current task/checkpoint."""
     if isinstance(camera_cfg, dict):
-        mode = camera_cfg.get('input_mode', 'depth')
+        mode = camera_cfg.get('input_mode')
     else:
-        mode = getattr(camera_cfg, 'input_mode', 'depth')
+        mode = getattr(camera_cfg, 'input_mode', None)
     if mode not in ('depth', 'zero'):
         raise ValueError("camera.input_mode must be 'depth' or 'zero'; got {!r}".format(mode))
     return mode
@@ -66,12 +66,12 @@ def normalize_model_config(config):
 
 
 def normalize_train_config(config):
-    """Accept legacy v4 policy.model_config only at the runner/play boundary."""
+    """Expand the saved policy snapshot at the runner/play boundary."""
     result = deepcopy(config)
     policy = result["policy"]
-    legacy = policy.pop("model_config", None)
-    if legacy is not None:
-        expanded = normalize_model_config(legacy)
+    model_config = policy.pop("model_config", None)
+    if model_config is not None:
+        expanded = normalize_model_config(model_config)
         expanded = {_MODEL_NAMES.get(name, name): value for name, value in expanded.items()}
         expanded.update(policy)
         result["policy"] = expanded
@@ -79,7 +79,7 @@ def normalize_train_config(config):
 
 
 def checkpoint_train_config(config, model_config):
-    """Keep the v4 on-disk format readable by existing training/playback code."""
+    """Save the effective network parameters for the current runner/play code."""
     result = deepcopy(config)
     model_config = dict(model_config)
     policy = {}

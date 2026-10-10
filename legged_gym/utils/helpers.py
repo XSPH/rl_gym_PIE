@@ -159,6 +159,9 @@ def get_args():
         {"name": "--rollout_steps", "type": int, "help": "PIE control steps per PPO rollout"},
         {"name": "--output_dir", "type": str, "help": "PIE checkpoint and metrics directory"},
         {"name": "--checkpoint_file", "type": str, "help": "PIE checkpoint for bounded play"},
+        {"name": "--terrain_preview", "action": "store_true", "default": False, "help": "PIE play: inspect the current terrain map without a policy checkpoint"},
+        {"name": "--terrain_level", "type": int, "default": 9, "help": "Terrain preview: initial difficulty row (default: 9)"},
+        {"name": "--terrain_column", "type": int, "help": "Terrain preview: initial column (default: first gap column)"},
         {"name": "--steps", "type": int, "default": 2000, "help": "PIE bounded playback control steps (default: 40 seconds)"},
         {"name": "--show_depth", "action": "store_true", "default": False, "help": "PIE playback: show captured depth and the policy's two history frames"},
         {"name": "--depth_env", "type": int, "default": 0, "help": "PIE depth window: initial robot index (default: 0)"},
@@ -240,6 +243,12 @@ def restore_playback_config(env_cfg, checkpoint, show_depth=False):
     environment = checkpoint.get("environment_cfg")
     if not isinstance(environment, dict):
         raise ValueError("Native PIE checkpoint is missing environment_cfg")
+    if environment.get('terrain', {}).get('geometry_version') != env_cfg.terrain.geometry_version:
+        raise ValueError('Checkpoint requires current terrain geometry version 3; retrain this task')
+    commands = environment.get('commands', {})
+    if (commands.get('num_commands') != 4 or commands.get('heading_command') is not True
+            or set(commands.get('group_maxima', {})) != {'flat', 'omni', 'stairs', 'forward'}):
+        raise ValueError('Checkpoint requires the current WMP command groups; retrain this task')
     cfg = copy.deepcopy(env_cfg)
     runtime_count = cfg.env.num_envs
     # TaskRegistry normally supplies this; accept the saved seed when this
@@ -247,9 +256,13 @@ def restore_playback_config(env_cfg, checkpoint, show_depth=False):
     if "seed" in environment and not hasattr(cfg, "seed"):
         cfg.seed = environment["seed"]
     _restore_fields(cfg, environment)
-    # Existing v4 models predate this field and used real depth. Playback
-    # follows the saved input mode independently of current training defaults.
-    cfg.camera.input_mode = depth_input_mode(environment.get('camera', {}))
+    # Playback samples the saved limits without advancing either curriculum.
+    cfg.commands.curriculum = False
+    cfg.commands._frozen_curriculum_state = copy.deepcopy(checkpoint.get('curriculum_state'))
+    # Map generation is always graded; freezing progression preserves it.
+    if 'input_mode' not in environment.get('camera', {}):
+        raise ValueError('Checkpoint is missing camera.input_mode')
+    cfg.camera.input_mode = depth_input_mode(environment['camera'])
     # Rendering is a playback diagnostic selected by CLI, not a policy input.
     cfg.camera.render_for_debug = bool(show_depth)
     cfg.env.num_envs = runtime_count

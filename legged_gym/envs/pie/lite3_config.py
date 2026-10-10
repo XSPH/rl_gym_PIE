@@ -44,30 +44,63 @@ class Lite3PIECfg(LeggedRobotCfg):
         control_type = 'P'
 
     class commands(LeggedRobotCfg.commands):
-        heading_command = False
-        curriculum = False
-        num_commands = 3
+        # WMP Go1 terrain groups, adapted to six terrain kinds including slope.
+        heading_command = True
+        curriculum = True
+        num_commands = 4  # The policy still observes only vx/vy/yaw.
         resampling_time = 10.0
+        initial_limit = 0.5
+        curriculum_threshold = 0.8
+        curriculum_increment = 0.2
+        group_maxima = {'flat': [2.0, 1.0], 'omni': [1.5, 1.0], 'stairs': [1.0, 0.8],
+                        'forward': [1.0, 0.0]}
+        heading_gain = 2.0
+        zero_command_probability = 0.05
+        small_command_threshold = 0.2
 
         class ranges(LeggedRobotCfg.commands.ranges):
-            lin_vel_x = [0.0, 1.5]
-            lin_vel_y = [0.0, 0.0]
+            # Envelope for grouped commands; group_maxima controls sampling.
+            lin_vel_x = [-2.0, 2.0]
+            lin_vel_y = [-1.0, 1.0]
             ang_vel_yaw = [-1.2, 1.2]
+            heading = [-3.141592653589793, 3.141592653589793]
 
     class terrain(LeggedRobotCfg.terrain):
+        geometry_version = 3
         mesh_type = 'trimesh'
-        curriculum = False
+        curriculum = True
         num_rows = 10
         num_cols = 20
         terrain_length = 8.0
         terrain_width = 8.0
-        terrain_proportions = [1.0]
+        terrain_proportions = [1.0 / 6.0] * 6
         max_init_terrain_level = 0
-        kinds = ['flat']
-        max_gap = 1.0
-        max_step = 0.75
+        kinds = ['flat', 'slope', 'stairs', 'gap', 'step', 'hurdle']
+        # WMP Go1 heightfields; slope/stairs use level / num_rows, while
+        # gap/climb dimensions use level / (num_rows - 1).
+        min_gap = 0.1
+        max_gap = 0.9
+        gap_floor_units = -1000
+        gap_channel_width = [1.0, 2.0]
+        min_step = 0.15
+        max_step = 0.60
+        step_length = [0.9, 1.1]
+        min_hurdle = 0.05
         max_hurdle = 0.75
-        max_stair = 0.25
+        hurdle_length = [0.2, 0.5]
+        min_stair = 0.05
+        max_stair = 0.23  # .05 + .18 * .9 = .212 m at row 9.
+        stair_width = [0.30, 0.34]
+        max_slope = 0.5  # Row 9 uses .45; nominal rise/run, about 24.2 degrees.
+        platform_size = 3.0
+        spawn_xy_range = 1.0
+        obstacle_spawn_range = 0.5
+        forward_spawn_x = 1.0
+        obstacle_start_x = 3.3
+        roughness = 0.05
+        roughness_step = 0.005
+        roughness_downsample = 0.2
+        slope_threshold = 0.75
         heightmap_offset = 0.5
 
     class domain_rand(LeggedRobotCfg.domain_rand):
@@ -105,6 +138,7 @@ class Lite3PIECfg(LeggedRobotCfg):
         normalize = True
 
     class rewards(LeggedRobotCfg.rewards):
+        lin_vel_clip = 0.1  # WMP obstacle groups permit temporary overspeed.
         soft_dof_pos_limit = 0.9
         base_height_target = 0.3
 

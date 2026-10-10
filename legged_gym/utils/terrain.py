@@ -1,3 +1,36 @@
+# SPDX-FileCopyrightText: Copyright (c) 2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice, this
+# list of conditions and the following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright notice,
+# this list of conditions and the following disclaimer in the documentation
+# and/or other materials provided with the distribution.
+#
+# 3. Neither the name of the copyright holder nor the names of its
+# contributors may be used to endorse or promote products derived from
+# this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+# Copyright (c) 2021 ETH Zurich, Nikita Rudin
+
+# This file may have been modified by Bytedance Ltd. and/or its affiliates (“Bytedance's Modifications”).
+# All Bytedance's Modifications are Copyright (year) Bytedance Ltd. and/or its affiliates.
+
 from copy import copy
 from dataclasses import dataclass
 
@@ -173,23 +206,20 @@ class TerrainAtlas:
     vertical_scale: float
 
 
-def _quad(vertices, triangles, points, reverse=False):
-    base = len(vertices)
-    vertices.extend(points)
-    faces = [(0, 1, 2), (0, 2, 3)]
-    if reverse:
-        faces = [tuple(reversed(face)) for face in faces]
-    triangles.extend([tuple(base + i for i in face) for face in faces])
-
-
 class PIETerrain(Terrain):
-    """Original 8 m grid and central origins with five PIE terrain families."""
+    """WMP Go1 heightfields restricted to PIE's six terrain families.
+
+    Layout reference: haozhang04/wmp_go1, commit 65cf1af,
+    legged_gym/utils/terrain.py. SDK generators and mesh conversion are shared;
+    random noise uses a local RNG and supported bilinear SciPy interpolation.
+    """
     def __init__(self, cfg, num_robots, seed=1):
+        self._validate_geometry(cfg)
         self.rng = np.random.default_rng(seed)
-        # Reuse native generation and add_terrain_to_map without first allocating
-        # its dense sloped mesh; our vertical-face mesh is built below.
         generation_cfg = copy(cfg)
         generation_cfg.mesh_type = "heightfield"
+        # Freezing runtime progression does not randomize the graded map.
+        generation_cfg.curriculum = True
         super().__init__(generation_cfg, num_robots)
         self.cfg = cfg
         self.type = cfg.mesh_type
@@ -197,18 +227,68 @@ class PIETerrain(Terrain):
             raise ValueError("PIE native training requires terrain.mesh_type='trimesh'.")
         self.kinds = [self._kind_for_choice(j / cfg.num_cols + 0.001)
                       for j in range(cfg.num_cols)]
-        self.vertices, self.triangles = self._vertical_mesh()
+        # WMP's converter uses the SDK's vertex shift / triangle construction.
+        # Both PhysX and Warp receive this one mesh in world coordinates.
+        self.vertices, self.triangles = terrain_utils.convert_heightfield_to_trimesh(
+            self.height_field_raw, cfg.horizontal_scale, cfg.vertical_scale,
+            cfg.slope_threshold)
+        self.vertices[:, :2] -= cfg.border_size
         self.atlas = TerrainAtlas(self.vertices, self.triangles,
                                   self.height_field_raw, self.env_origins,
                                   self.kinds, cfg, cfg.border_size,
                                   cfg.horizontal_scale, cfg.vertical_scale)
 
+    @staticmethod
+    def _validate_geometry(cfg):
+        if cfg.geometry_version != 3:
+            raise ValueError('PIE requires current terrain geometry version 3')
+        if (not cfg.kinds or len(set(cfg.kinds)) != len(cfg.kinds)
+                or set(cfg.kinds) - {'flat', 'slope', 'stairs', 'gap', 'step', 'hurdle'}):
+            raise ValueError('Unsupported or duplicate PIE terrain kinds')
+        weights = np.asarray(cfg.terrain_proportions, dtype=float)
+        if (len(weights) != len(cfg.kinds) or not np.isfinite(weights).all()
+                or (weights < 0).any() or weights.sum() <= 0):
+            raise ValueError('Terrain proportions must match kinds and have positive total weight')
+        values = [cfg.terrain_length, cfg.terrain_width, cfg.horizontal_scale,
+                  cfg.vertical_scale, cfg.platform_size, cfg.spawn_xy_range,
+                  cfg.obstacle_spawn_range, cfg.forward_spawn_x, cfg.obstacle_start_x,
+                  cfg.roughness, cfg.roughness_step, cfg.roughness_downsample,
+                  cfg.slope_threshold, cfg.max_slope, cfg.gap_floor_units, cfg.border_size]
+        if not np.isfinite(values).all():
+            raise ValueError('Terrain geometry parameters must be finite')
+        if (cfg.num_rows < 1 or cfg.num_cols < 1 or cfg.horizontal_scale <= 0
+                or cfg.vertical_scale <= 0 or cfg.border_size < 0
+                or min(cfg.terrain_length, cfg.terrain_width) < 7):
+            raise ValueError('Invalid PIE terrain grid')
+        if (cfg.platform_size <= 2 * (cfg.spawn_xy_range + 0.4)
+                or cfg.platform_size >= min(cfg.terrain_length, cfg.terrain_width)
+                or min(cfg.spawn_xy_range, cfg.obstacle_spawn_range, cfg.roughness, cfg.max_slope) < 0
+                or cfg.slope_threshold <= 0 or cfg.roughness_step < cfg.vertical_scale
+                or cfg.roughness_downsample < cfg.horizontal_scale
+                or cfg.roughness_downsample > min(cfg.terrain_length, cfg.terrain_width) / 2
+                or cfg.gap_floor_units != int(cfg.gap_floor_units)
+                or not -32768 <= cfg.gap_floor_units < 0):
+            raise ValueError('Invalid WMP terrain platform, roughness, or pit parameters')
+        for name in ('gap', 'step', 'hurdle', 'stair'):
+            low, high = getattr(cfg, 'min_' + name), getattr(cfg, 'max_' + name)
+            if not np.isfinite([low, high]).all() or not 0 < low <= high:
+                raise ValueError('Invalid terrain size range: ' + name)
+        for name in ('gap_channel_width', 'step_length', 'hurdle_length', 'stair_width'):
+            bounds = getattr(cfg, name)
+            if len(bounds) != 2 or not np.isfinite(bounds).all() or not 0 < bounds[0] <= bounds[1]:
+                raise ValueError('Invalid terrain geometry range: ' + name)
+        if (cfg.gap_channel_width[1] >= cfg.terrain_width
+                or cfg.max_gap >= cfg.terrain_length / 2 - 2
+                or cfg.stair_width[0] < cfg.horizontal_scale
+                or cfg.forward_spawn_x - cfg.obstacle_spawn_range < 0.4
+                or cfg.forward_spawn_x + cfg.obstacle_spawn_range + 0.8 >= cfg.obstacle_start_x
+                or cfg.obstacle_start_x + cfg.step_length[1] + 0.8
+                   >= cfg.terrain_length - cfg.step_length[1]
+                or cfg.obstacle_start_x + cfg.hurdle_length[1] + 0.8 >= cfg.terrain_length):
+            raise ValueError('WMP courses must contain spawn and separated obstacle zones')
+
     def _kind_for_choice(self, choice):
-        if len(self.cfg.kinds) == 1:
-            return self.cfg.kinds[0]
         weights = np.asarray(self.cfg.terrain_proportions, dtype=float)
-        if len(weights) != len(self.cfg.kinds) or np.any(weights < 0) or weights.sum() <= 0:
-            raise ValueError("terrain_proportions must match PIE kinds and have positive total weight.")
         index = np.searchsorted(np.cumsum(weights / weights.sum()), choice, side='right')
         return self.cfg.kinds[min(index, len(self.cfg.kinds) - 1)]
 
@@ -216,104 +296,102 @@ class PIETerrain(Terrain):
         for column in range(self.cfg.num_cols):
             choice = column / self.cfg.num_cols + 0.001
             for row in range(self.cfg.num_rows):
-                # Preserve the existing PIE nonzero easiest obstacle level.
-                difficulty = (row + 1) / self.cfg.num_rows
+                # WMP's ordinary slope/stair schedule deliberately tops at .9.
+                difficulty = row / self.cfg.num_rows
                 self.add_terrain_to_map(self.make_terrain(choice, difficulty), row, column)
+
+    def add_terrain_to_map(self, terrain, row, col):
+        nx, ny = self.length_per_env_pixels, self.width_per_env_pixels
+        x, y = self.border + row * nx, self.border + col * ny
+        self.height_field_raw[x:x+nx, y:y+ny] = terrain.height_field_raw
+        origin_x = getattr(terrain, 'spawn_x', self.env_length / 2)
+        origin_z = getattr(terrain, 'spawn_z', None)
+        if origin_z is None:
+            # Same central 2x2 m maximum as WMP (including roughness).
+            scale = self.cfg.horizontal_scale
+            x1, x2 = int((self.env_length / 2 - 1) / scale), int((self.env_length / 2 + 1) / scale)
+            y1, y2 = int((self.env_width / 2 - 1) / scale), int((self.env_width / 2 + 1) / scale)
+            origin_z = float(terrain.height_field_raw[x1:x2, y1:y2].max()) * self.cfg.vertical_scale
+        self.env_origins[row, col] = [row * self.env_length + origin_x,
+                                      col * self.env_width + self.env_width / 2, origin_z]
+
+    def _direction(self, choice, kind):
+        weights = np.asarray(self.cfg.terrain_proportions, dtype=float)
+        weights /= weights.sum()
+        index = self.cfg.kinds.index(kind)
+        fraction = (choice - weights[:index].sum()) / weights[index]
+        return -1.0 if fraction < 0.5 else 1.0
+
+    def _roughen(self, terrain):
+        """WMP's uniform +/-5 cm noise on a .2 m grid, bilinearly upsampled.
+
+        RectBivariateSpline(kx=ky=1) keeps the SDK's linear interpolation
+        semantics without its removed scipy.interpolate.interp2d dependency.
+        """
+        cfg = self.cfg
+        amplitude = int(cfg.roughness / cfg.vertical_scale)
+        step = int(cfg.roughness_step / cfg.vertical_scale)
+        values = np.arange(-amplitude, amplitude + step, step)
+        nx, ny = terrain.height_field_raw.shape
+        coarse = self.rng.choice(values, (int(nx * cfg.horizontal_scale / cfg.roughness_downsample),
+                                          int(ny * cfg.horizontal_scale / cfg.roughness_downsample)))
+        x = np.linspace(0, nx * cfg.horizontal_scale, coarse.shape[0])
+        y = np.linspace(0, ny * cfg.horizontal_scale, coarse.shape[1])
+        noise = interpolate.RectBivariateSpline(x, y, coarse, kx=1, ky=1)(
+            np.linspace(0, nx * cfg.horizontal_scale, nx),
+            np.linspace(0, ny * cfg.horizontal_scale, ny))
+        terrain.height_field_raw += np.rint(noise).astype(np.int16)
 
     def make_terrain(self, choice, difficulty):
         cfg = self.cfg
-        terrain = terrain_utils.SubTerrain("pie", width=self.width_per_env_pixels,
-                                           length=self.length_per_env_pixels,
+        terrain = terrain_utils.SubTerrain("pie", width=self.length_per_env_pixels,
+                                           length=self.width_per_env_pixels,
                                            vertical_scale=cfg.vertical_scale,
                                            horizontal_scale=cfg.horizontal_scale)
         kind = self._kind_for_choice(choice)
-        # Square pyramid bands match native Terrain's center-platform layout.
-        # A yaw command cannot bypass all obstacles through an empty y strip.
-        center_x, center_y = self.env_length / 2, self.env_width / 2
-        xs = (np.arange(self.length_per_env_pixels) + 0.5) * cfg.horizontal_scale
-        ys = (np.arange(self.width_per_env_pixels) + 0.5) * cfg.horizontal_scale
-        radius = np.maximum(np.abs(xs[:, None] - center_x), np.abs(ys[None, :] - center_y))
-        surface = np.zeros_like(radius, dtype=np.float32)
-        def fill(a, b, z):
-            surface[(radius >= a) & (radius < b)] = z
-        if kind == "gap":
-            width = max(cfg.horizontal_scale, self.cfg.max_gap * difficulty
-                        * self.rng.uniform(0.85, 1.0))
-            fill(2.4 - width / 2, 2.4 + width / 2, -self.rng.uniform(0.4, 1.5))
-        elif kind == "step":
-            h = self.cfg.max_step * difficulty * self.rng.uniform(0.85, 1.0)
-            fill(1.8, min(center_x, center_y) - 0.2, h)
-        elif kind == "hurdle":
-            h = self.cfg.max_hurdle * difficulty * self.rng.uniform(0.85, 1.0)
-            half = self.rng.uniform(0.10, 0.25)
-            fill(2.4 - half, 2.4 + half, h)
-        elif kind == "stairs":
-            h = self.cfg.max_stair * difficulty * self.rng.uniform(0.85, 1.0)
-            for stair in range(5):
-                fill(1.8 + stair * 0.35, 1.8 + (stair + 1) * 0.35, (stair + 1) * h)
-        # +/-1m native root randomization plus feet fit on this 3.2m platform.
-        surface[radius < 1.6] = 0
-        terrain.height_field_raw[:] = np.rint(surface / cfg.vertical_scale).astype(np.int16)
+        normalized = min(difficulty * cfg.num_rows / max(cfg.num_rows - 1, 1), 1.0)
+        def size(name, progress=normalized):
+            low, high = getattr(cfg, 'min_' + name), getattr(cfg, 'max_' + name)
+            return low + progress * (high - low)
+        scale = cfg.horizontal_scale
+        nx, ny = terrain.height_field_raw.shape
+        if kind == 'slope':
+            terrain_utils.pyramid_sloped_terrain(
+                terrain, slope=cfg.max_slope * difficulty * self._direction(choice, kind),
+                platform_size=cfg.platform_size)
+        elif kind == 'stairs':
+            terrain_utils.pyramid_stairs_terrain(
+                terrain, step_width=self.rng.uniform(*cfg.stair_width),
+                step_height=size('stair', difficulty) * self._direction(choice, kind),
+                platform_size=cfg.platform_size)
+        elif kind == 'gap':
+            # WMP gap: central [3,6] m platform, gaps on both sides, narrow
+            # [1,2] m channel, with the surrounding field at -1000 units.
+            gap = int(size('gap') / scale)
+            x1, x2 = int(nx // 2 - 1 / scale), int(nx // 2 + 2 / scale)
+            half_width = self.rng.uniform(*cfg.gap_channel_width) / 2
+            y1, y2 = int(ny // 2 - half_width / scale), int(ny // 2 + half_width / scale)
+            terrain.height_field_raw[:, :] = cfg.gap_floor_units
+            terrain.height_field_raw[gap:x1-gap, y1:y2] = 0
+            terrain.height_field_raw[x1:x2, y1:y2] = 0
+            terrain.height_field_raw[x2+gap:, y1:y2] = 0
+        elif kind == 'step':
+            # WMP climb has two raised blocks; the second reaches the tile end.
+            lengths = [int(round(self.rng.uniform(*cfg.step_length) / scale)) for _ in range(2)]
+            starts = [int(round(cfg.obstacle_start_x / scale)), nx - lengths[1]]
+            height = int(round(size('step') / cfg.vertical_scale))
+            for start, length in zip(starts, lengths):
+                terrain.height_field_raw[start:start+length, :] = height
+            terrain.spawn_x, terrain.spawn_z = cfg.forward_spawn_x, 0.0
+        elif kind == 'hurdle':
+            # PIE's narrow wall has no exact WMP counterpart.
+            start = int(round(cfg.obstacle_start_x / scale))
+            length = int(round(self.rng.uniform(*cfg.hurdle_length) / scale))
+            terrain.height_field_raw[start:start+length, :] = int(round(size('hurdle') / cfg.vertical_scale))
+            terrain.spawn_x, terrain.spawn_z = cfg.forward_spawn_x, 0.0
+        if kind in ('flat', 'slope', 'gap', 'step'):
+            self._roughen(terrain)
         return terrain
-
-    def _vertical_mesh(self):
-        """Merged top faces, exposed cliffs, and outer closure only.
-
-        Equal-height cell boundaries have no buried contact triangles. A cliff
-        wall spans exactly its neighboring two top elevations, with its normal
-        pointing from the higher solid terrain toward the lower surface.
-        """
-        heights = self.height_field_raw
-        changes = np.r_[0, np.flatnonzero(np.any(heights[1:] != heights[:-1], axis=1)) + 1,
-                        heights.shape[0]]
-        vertices, triangles = [], []
-        scale, offset, vertical = self.cfg.horizontal_scale, self.cfg.border_size, self.cfg.vertical_scale
-        for first, last in zip(changes[:-1], changes[1:]):
-            row = heights[first]
-            runs = np.r_[0, np.flatnonzero(row[1:] != row[:-1]) + 1, len(row)]
-            x0, x1 = first * scale - offset, last * scale - offset
-            for start, end in zip(runs[:-1], runs[1:]):
-                y0, y1 = start * scale - offset, end * scale - offset
-                z = float(row[start]) * vertical
-                _quad(vertices, triangles, [(x0, y0, z), (x1, y0, z),
-                                            (x1, y1, z), (x0, y1, z)])
-        bottom_units = int(heights.min()) - int(np.ceil(0.2 / vertical))
-        def walls(before, after, boundary, axis):
-            if np.array_equal(before, after):
-                return
-            differences = (before[1:] != before[:-1]) | (after[1:] != after[:-1])
-            runs = np.r_[0, np.flatnonzero(differences) + 1, len(before)]
-            coordinate = boundary * scale - offset
-            for start, end in zip(runs[:-1], runs[1:]):
-                a, b = int(before[start]), int(after[start])
-                if a == b:
-                    continue
-                low, high = min(a, b) * vertical, max(a, b) * vertical
-                first, last = start * scale - offset, end * scale - offset
-                if axis == 0:
-                    points = [(coordinate, first, low), (coordinate, last, low),
-                              (coordinate, last, high), (coordinate, first, high)]
-                else:
-                    points = [(first, coordinate, low), (first, coordinate, high),
-                              (last, coordinate, high), (last, coordinate, low)]
-                _quad(vertices, triangles, points, reverse=(a < b))
-        outside_x = np.full(heights.shape[1], bottom_units, dtype=np.int32)
-        for boundary in range(heights.shape[0] + 1):
-            before = outside_x if boundary == 0 else heights[boundary - 1]
-            after = outside_x if boundary == heights.shape[0] else heights[boundary]
-            walls(before, after, boundary, axis=0)
-        outside_y = np.full(heights.shape[0], bottom_units, dtype=np.int32)
-        for boundary in range(heights.shape[1] + 1):
-            before = outside_y if boundary == 0 else heights[:, boundary - 1]
-            after = outside_y if boundary == heights.shape[1] else heights[:, boundary]
-            walls(before, after, boundary, axis=1)
-        x0, y0 = -offset, -offset
-        x1 = heights.shape[0] * scale - offset
-        y1 = heights.shape[1] * scale - offset
-        bottom = bottom_units * vertical
-        _quad(vertices, triangles, [(x0, y0, bottom), (x1, y0, bottom),
-                                    (x1, y1, bottom), (x0, y1, bottom)], reverse=True)
-        return np.asarray(vertices, dtype=np.float32), np.asarray(triangles, dtype=np.uint32)
 
 
 class TerrainSampler:
@@ -325,13 +403,17 @@ class TerrainSampler:
         self.origins = torch.as_tensor(atlas.origins, device=device, dtype=torch.float32)
 
     def sample(self, points, levels=None, columns=None):
-        """World points, including neighboring tiles; half-open cells at edges."""
+        """WMP/native conservative labels: minimum of three adjacent samples.
+
+        These are heightfield labels, not exact ray intersections on the mesh's
+        shifted cliff vertices. PhysX and the depth camera use the mesh itself.
+        """
         torch, atlas = self.torch, self.atlas
         ix = torch.floor((points[..., 0] + atlas.border_size) / atlas.resolution).long()
         iy = torch.floor((points[..., 1] + atlas.border_size) / atlas.resolution).long()
-        inside = ((ix >= 0) & (ix < self.heights.shape[0])
-                  & (iy >= 0) & (iy < self.heights.shape[1]))
-        height = self.heights[ix.clamp(0, self.heights.shape[0] - 1),
-                              iy.clamp(0, self.heights.shape[1] - 1)].float() * atlas.vertical_scale
-        # Match native height-label boundary clamping: its 25m border is flat.
+        inside = ((ix >= 0) & (ix < self.heights.shape[0] - 1)
+                  & (iy >= 0) & (iy < self.heights.shape[1] - 1))
+        x, y = ix.clamp(0, self.heights.shape[0] - 2), iy.clamp(0, self.heights.shape[1] - 2)
+        height = torch.minimum(torch.minimum(self.heights[x, y], self.heights[x+1, y]),
+                               self.heights[x, y+1]).float() * atlas.vertical_scale
         return torch.where(inside, height, torch.zeros_like(height))

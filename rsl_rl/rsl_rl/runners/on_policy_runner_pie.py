@@ -304,6 +304,9 @@ class PIEOnPolicyRunner(OnPolicyRunner):
             "total_timesteps": self.tot_timesteps, "total_time": self.tot_time,
             "rsl_rl_base": "v1.0.2", "pie_checkpoint_version": 4,
         }
+        get_curriculum_state = getattr(self.env, 'get_curriculum_state', None)
+        if get_curriculum_state is not None:
+            checkpoint['curriculum_state'] = get_curriculum_state()
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.with_name(path.name + ".tmp")
@@ -329,6 +332,9 @@ class PIEOnPolicyRunner(OnPolicyRunner):
         current_config.pop("initial_std")
         if stored_config != current_config:
             raise ValueError("Checkpoint model configuration does not match this task")
+        load_curriculum_state = getattr(self.env, 'load_curriculum_state', None)
+        if load_curriculum_state is not None:
+            load_curriculum_state(saved.get('curriculum_state'))
         self.alg.actor_critic.load_state_dict(saved["model_state_dict"])
         if load_optimizer:
             self.alg.optimizer.load_state_dict(saved["optimizer_state_dict"])

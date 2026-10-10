@@ -10,7 +10,8 @@ import torch
 from legged_gym.envs.base.legged_robot import LeggedRobot
 from legged_gym.utils.terrain import PIETerrain, TerrainSampler
 from legged_gym.utils.kinematics import UrdfKinematics
-from legged_gym.utils.math import quat_yaw
+from legged_gym.utils.math import quat_yaw, wrap_to_pi
+from legged_gym.utils.pie_curriculum import PIECommandCurriculum
 from rsl_rl.utils.pie_config import depth_input_mode
 
 
@@ -26,6 +27,7 @@ class Lite3PIE(LeggedRobot):
         cfg.env.num_privileged_obs = 48 + len(cfg.terrain.measured_points_x) * len(cfg.terrain.measured_points_y)
         self.rng = np.random.default_rng(cfg.seed)
         self._pie_ready = False
+        self._command_curriculum = None
         try:
             super().__init__(cfg, sim_params, physics_engine, sim_device, headless)
             self.metadata = {'base': 'unitreerobotics/unitree_rl_gym',
@@ -66,10 +68,23 @@ class Lite3PIE(LeggedRobot):
             raise ValueError("Invalid depth clipping or image resolution.")
         if terrain.num_rows < 1 or terrain.num_cols < 1:
             raise ValueError("Terrain rows and columns must be positive.")
+        commands = cfg.commands
+        if commands.resampling_time < sim_params.dt * cfg.control.decimation:
+            raise ValueError('Command resampling time must cover at least one control step')
+        if commands.num_commands != 4 or not commands.heading_command:
+            raise ValueError('WMP command groups require four commands and heading mode')
+        if commands.curriculum and cfg.rewards.scales.tracking_lin_vel <= 0:
+            raise ValueError('Speed curriculum requires a positive tracking_lin_vel reward')
+        if (not math.isfinite(commands.heading_gain) or commands.heading_gain <= 0
+                or not 0 <= commands.zero_command_probability <= 1
+                or not math.isfinite(commands.small_command_threshold)
+                or commands.small_command_threshold < 0):
+            raise ValueError('Invalid grouped command sampling parameters')
         if terrain.terrain_length < 7 or terrain.terrain_width < 1:
             raise ValueError("Course length >= 7 m and width >= 1 m are required.")
-        if not terrain.kinds or set(terrain.kinds) - {"flat", "gap", "step", "hurdle", "stairs"}:
-            raise ValueError("Unsupported terrain kinds.")
+        PIETerrain._validate_geometry(terrain)
+        if (not math.isfinite(cfg.rewards.lin_vel_clip) or cfg.rewards.lin_vel_clip < 0):
+            raise ValueError('Obstacle velocity clipping must be finite and nonnegative')
         if not terrain.measured_points_x or not terrain.measured_points_y:
             raise ValueError("Height scan cannot be empty.")
         if (cfg.rewards.scales.feet_regulation != 0
@@ -127,7 +142,114 @@ class Lite3PIE(LeggedRobot):
         self.fk = UrdfKinematics(self.urdf, self.cfg.asset.joint_names,
                                 self.cfg.asset.base_name, self.device)
         self._init_pie_buffers()
+        self._init_command_curriculum()
         self._init_depth_camera()
+
+    def _init_command_curriculum(self):
+        columns = torch.tensor([PIECommandCurriculum.terrain_groups[kind]
+                                for kind in self.atlas.kinds], device=self.device)
+        self._command_curriculum = PIECommandCurriculum(
+            self.cfg.commands, columns[self.terrain_types])
+        self._forward_env_mask = self._command_curriculum.group_ids == PIECommandCurriculum.forward_group
+        self._episode_steps = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
+        self._spawn_ranges = torch.full((self.num_envs, 2), self.cfg.terrain.spawn_xy_range,
+                                        device=self.device)
+        self._spawn_ranges[self._forward_env_mask] = self.cfg.terrain.obstacle_spawn_range
+        self._terrain_kind_ids = {}
+        for kind in dict.fromkeys(self.atlas.kinds):
+            kind_columns = torch.tensor([name == kind for name in self.atlas.kinds], device=self.device)
+            ids = kind_columns[self.terrain_types].nonzero(as_tuple=False).flatten()
+            if len(ids):
+                self._terrain_kind_ids[kind] = ids
+                if kind in ('gap', 'hurdle'):
+                    self._spawn_ranges[ids, 1] = 0
+        frozen = getattr(self.cfg.commands, '_frozen_curriculum_state', None)
+        if frozen is not None:
+            if frozen.get('version') != 3 or frozen.get('geometry_version') != self.cfg.terrain.geometry_version:
+                raise ValueError('Unsupported frozen curriculum version')
+            self._command_curriculum.load_state_dict(frozen['commands'], restore_statistics=False)
+
+    def _resample_commands(self, env_ids):
+        if len(env_ids) == 0:
+            return
+        curriculum = self._command_curriculum
+        cfg = self.cfg.commands
+        for group in range(len(curriculum.names)):
+            ids = env_ids[curriculum.group_ids[env_ids] == group]
+            if len(ids) == 0:
+                continue
+            limits = curriculum.limits[group]
+            if group == PIECommandCurriculum.forward_group:
+                self.commands[ids, 0] = torch.rand(len(ids), device=self.device) * limits[0]
+                self.commands[ids, 1] = 0
+                self.commands[ids, 3] = 0
+            else:
+                self.commands[ids, :2] = (2 * torch.rand((len(ids), 2), device=self.device) - 1) * limits
+                self.commands[ids, 3] = self._uniform((len(ids),), self.command_ranges['heading'])
+                stand = torch.rand(len(ids), device=self.device) < cfg.zero_command_probability
+                self.commands[ids[stand], :2] = 0
+            small = torch.norm(self.commands[ids, :2], dim=1) <= cfg.small_command_threshold
+            self.commands[ids[small], :2] = 0
+        # Reset-time observations must already contain the new heading command.
+        self._update_heading_commands(env_ids)
+
+    def _update_heading_commands(self, env_ids=None):
+        if env_ids is None:
+            env_ids = slice(None)
+        forward = quat_rotate(self.base_quat[env_ids], self.forward_vec[env_ids])
+        heading = torch.atan2(forward[:, 1], forward[:, 0])
+        yaw = self.cfg.commands.heading_gain * wrap_to_pi(self.commands[env_ids, 3] - heading)
+        self.commands[env_ids, 2] = yaw.clamp(*self.command_ranges['ang_vel_yaw'])
+
+    def _post_physics_step_callback(self):
+        # Actual steps exclude the runner's randomized initial episode clock.
+        self._episode_steps += 1
+        period = int(self.cfg.commands.resampling_time / self.dt)
+        env_ids = (self.episode_length_buf % period == 0).nonzero(as_tuple=False).flatten()
+        self._resample_commands(env_ids)
+        self._update_heading_commands()
+
+    def _reset_root_states(self, env_ids):
+        self.root_states[env_ids] = self.base_init_state
+        self.root_states[env_ids, :3] += self.env_origins[env_ids]
+        offsets = self._uniform((len(env_ids), 2), [-1.0, 1.0]) * self._spawn_ranges[env_ids]
+        self.root_states[env_ids, :2] += offsets
+        self.root_states[env_ids, 7:13] = self._uniform((len(env_ids), 6), [-0.5, 0.5])
+        self._episode_steps[env_ids] = 0
+        ids = env_ids.to(dtype=torch.int32)
+        self.gym.set_actor_root_state_tensor_indexed(
+            self.sim, gymtorch.unwrap_tensor(self.root_states), gymtorch.unwrap_tensor(ids), len(ids))
+
+    def _command_score_normalizer(self):
+        return self.max_episode_length * self.reward_scales.get('tracking_lin_vel', 0.0)
+
+    def update_command_curriculum(self, env_ids):
+        curriculum = getattr(self, '_command_curriculum', None)
+        if curriculum is not None and self.cfg.commands.curriculum:
+            curriculum.update(env_ids, self._episode_steps,
+                              self.episode_sums['tracking_lin_vel'],
+                              self.max_episode_length, self.reward_scales['tracking_lin_vel'])
+
+    def get_curriculum_state(self):
+        curriculum = getattr(self, '_command_curriculum', None)
+        if curriculum is None:
+            return None
+        return {'version': 3, 'geometry_version': self.cfg.terrain.geometry_version,
+                'commands': curriculum.state_dict(),
+                'normalizer': float(self._command_score_normalizer())}
+
+    def load_curriculum_state(self, state):
+        if (not isinstance(state, dict) or state.get('version') != 3
+                or state.get('geometry_version') != self.cfg.terrain.geometry_version):
+            raise ValueError('Checkpoint requires the current command curriculum state; retrain this task')
+        same_horizon = math.isclose(float(state['normalizer']), self._command_score_normalizer())
+        self._command_curriculum.load_state_dict(state['commands'], restore_statistics=same_horizon)
+        # The runner already performed an initial reset. Those steps are not
+        # part of resumed episodes and must not enter either curriculum.
+        self.episode_length_buf.zero_()
+        self._episode_steps.zero_()
+        for rewards in self.episode_sums.values():
+            rewards.zero_()
 
     def _init_depth_camera(self):
         self.camera = None
@@ -171,12 +293,16 @@ class Lite3PIE(LeggedRobot):
         nonfinite = (~torch.isfinite(self.root_states).all(-1)
                      | ~torch.isfinite(self.dof_pos).all(-1)
                      | ~torch.isfinite(self.dof_vel).all(-1))
-        failure = contact | tilted | nonfinite
+        falling = self.root_states[:, 9] < -3.0
+        failure = contact | tilted | nonfinite | falling
         # A simultaneous failure at the time limit is a terminal, not timeout.
         self.time_out_buf &= ~failure
-        self.reset_buf |= nonfinite
+        # WMP maps allow travel into adjacent tiles; there is no course exit
+        # truncation or artificial lateral corridor termination.
+        self.reset_buf |= failure
         self._termination_reasons = {'base_contact': contact, 'tilted': tilted,
-                                     'nonfinite': nonfinite, 'timeout': self.time_out_buf.clone()}
+                                     'nonfinite': nonfinite, 'falling': falling,
+                                     'timeout': self.time_out_buf.clone()}
 
     def _before_reset(self):
         self.gym.refresh_rigid_body_state_tensor(self.sim)
@@ -224,30 +350,50 @@ class Lite3PIE(LeggedRobot):
     def reset_idx(self, env_ids):
         if len(env_ids) == 0:
             return
+        promotion_rate = None
         if self._pie_ready and self.cfg.terrain.curriculum:
-            self._update_terrain_curriculum(env_ids)
+            promotion_rate = self._update_terrain_curriculum(env_ids)
+        if self._pie_ready:
+            self.update_command_curriculum(env_ids)
         super().reset_idx(env_ids)
         if self._pie_ready:
             self._reset_pie_sensors(env_ids)
             self.extras['episode']['terrain_level'] = self.terrain_levels.float().mean()
+            if promotion_rate is not None:
+                self.extras['episode']['terrain_promotion_rate'] = promotion_rate
+            curriculum = getattr(self, '_command_curriculum', None)
+            if curriculum is not None:
+                episode = self.extras['episode']
+                # The base reports the global envelope, which is not the
+                # active sampling limit for terrain-conditioned commands.
+                episode.pop('max_command_x', None)
+                for group, name in enumerate(curriculum.names):
+                    if curriculum.group_sizes[group] > 0:
+                        episode['cmd_' + name + '_x'] = curriculum.limits[group, 0].clone()
+                        episode['cmd_' + name + '_y'] = curriculum.limits[group, 1].clone()
+                        episode['cmd_' + name + '_score'] = curriculum.scores[group].clone()
+                for kind, ids in self._terrain_kind_ids.items():
+                    episode['terrain_level_' + kind] = self.terrain_levels[ids].float().mean()
 
     def _update_terrain_curriculum(self, env_ids):
+        """WMP's net-displacement curriculum on the matched 8 m heightfields."""
         if not self.init_done:
             return
-        # An explicit initial reset after construction must not downgrade rows.
-        active = self.episode_length_buf[env_ids] > 0
+        # Initialization/resume resets are not completed training episodes.
+        active = self._episode_steps[env_ids] > 0
         ids = env_ids[active]
         if len(ids) == 0:
             return
         distance = torch.norm(self.root_states[ids, :2] - self.env_origins[ids, :2], dim=1)
         up = distance > self.terrain.env_length / 2
-        down = ((distance < torch.norm(self.commands[ids, :2], dim=1)
-                 * self.max_episode_length_s * 0.5) & ~up)
+        expected = torch.norm(self.commands[ids, :2], dim=1) * self.max_episode_length_s
+        down = (distance < expected * 0.5) & ~up
         levels = self.terrain_levels[ids] + up.long() - down.long()
         levels = torch.where(levels >= self.cfg.terrain.num_rows,
                              torch.randint_like(levels, self.cfg.terrain.num_rows), levels.clamp_min(0))
         self.terrain_levels[ids] = levels
         self.env_origins[ids] = self.terrain_origins[levels, self.terrain_types[ids]]
+        return up.float().mean()
 
     @property
     def action_dim(self):
@@ -309,14 +455,17 @@ class Lite3PIE(LeggedRobot):
         clip = self.cfg.normalization.clip_observations
         return proprio.clamp(-clip, clip)
 
-    def _terrain_targets(self):
+    def _scan_ground_heights(self):
         yaw = quat_yaw(self.base_quat)
         scan = self.scan_points[None].expand(self.num_envs, -1, -1).clone()
         x, y = scan[..., 0].clone(), scan[..., 1].clone()
         scan[..., 0] = torch.cos(yaw[:, None]) * x - torch.sin(yaw[:, None]) * y
         scan[..., 1] = torch.sin(yaw[:, None]) * x + torch.cos(yaw[:, None]) * y
         scan += self.root_states[:, None, :3]
-        ground = self.terrain_sampler.sample(scan)
+        return self.terrain_sampler.sample(scan)
+
+    def _terrain_targets(self):
+        ground = self._scan_ground_heights()
         heightmap = (self.root_states[:, 2:3] - ground - self.cfg.terrain.heightmap_offset).clamp(-1.0, 1.0)
         feet = self.rigid_body_states[:, self.foot_indices, :3]
         clearance = (feet[..., 2] - self.terrain_sampler.sample(feet)
@@ -425,6 +574,33 @@ class Lite3PIE(LeggedRobot):
 
     def _reward_joint_power(self):
         return (self.torques.abs() * self.dof_vel.abs()).sum(-1)
+
+    def _reward_tracking_lin_vel(self):
+        # WMP allows temporary overspeed on forward obstacle terrains while
+        # retaining the ordinary tracking objective on flat/slope/stairs.
+        measured = self.base_lin_vel[:, :2].clone()
+        ids = self._forward_env_mask.nonzero(as_tuple=False).flatten()
+        commands = self.commands[ids, :2]
+        tolerance = self.cfg.rewards.lin_vel_clip
+        upper = torch.where(commands < 0, float('inf'), commands + tolerance)
+        lower = torch.where(commands > 0, float('-inf'), commands - tolerance)
+        measured[ids] = torch.minimum(torch.maximum(measured[ids], lower), upper)
+        error = (self.commands[:, :2] - measured).square().sum(dim=1)
+        return torch.exp(-error / self.cfg.rewards.tracking_sigma)
+
+    def _reward_base_height(self):
+        # An elevated or depressed spawn platform must not incur a penalty
+        # merely because its world Z differs from the flat-ground baseline.
+        ground = self._scan_ground_heights()
+        # Robots may walk into neighboring gap tiles, so exclude pit samples
+        # by height for every robot, independent of its original terrain kind.
+        floor = self.cfg.terrain.gap_floor_units * self.cfg.terrain.vertical_scale
+        support = ground > floor + self.cfg.terrain.roughness + 0.1
+        count = support.sum(dim=1)
+        mean = (ground * support).sum(dim=1) / count.clamp_min(1)
+        reference = torch.where(count > 0, mean, self.env_origins[:, 2])
+        height = self.root_states[:, 2] - reference
+        return (height - self.cfg.rewards.base_height_target).square()
 
     def _reward_smoothness(self):
         return (self.actions - 2 * self.last_actions + self.last_last_actions).square().sum(-1)

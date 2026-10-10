@@ -97,6 +97,8 @@ def test_native_step_advances_decimation_then_rewards_snapshot_reset_observation
 
 def test_reward_scales_are_registered_once_and_drive_native_episode_sums(classes):
     task = state(classes.task)
+    task._forward_env_mask = torch.zeros(task.num_envs, dtype=torch.bool)
+    task.cfg.rewards.lin_vel_clip = .1
     task.commands[:, 0] = 1.
     task.torques.fill_(2.)
     task.dof_vel.fill_(3.)

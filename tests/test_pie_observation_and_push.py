@@ -20,6 +20,7 @@ def sensor():
     task.cfg.domain_rand.randomize_camera = False  # Deterministic sensor/FK references.
     task.cfg.camera.height = task.cfg.camera.width = 8
     task.cfg.terrain.curriculum = False
+    task.cfg.commands.curriculum = False
     task.sim_params = NS(dt=.005)
     task.num_bodies = 5
     task.body_names = ["TORSO"] + task.cfg.asset.foot_names
@@ -50,6 +51,11 @@ def sensor():
     task.setters = setters
     actions_pointer = task.actions.data_ptr()
     task._init_pie_buffers()
+    task.atlas = NS(kinds=['flat'] * task.cfg.terrain.num_cols)
+    task.env_origins = torch.zeros(3, 3)
+    task.forward_vec = torch.tensor([1., 0., 0.]).repeat(3, 1)
+    task.command_ranges = class_to_dict(task.cfg.commands.ranges)
+    task._init_command_curriculum()
     assert task.actions.data_ptr() == actions_pointer
     urdf = task.cfg.asset.file.format(LEGGED_GYM_ROOT_DIR=str(Path(__file__).resolve().parents[1]))
     task.fk = classes.kinematics.UrdfKinematics(urdf, task.cfg.asset.joint_names,

@@ -73,12 +73,7 @@ def load_native_classes():
                       unwrap_tensor=lambda tensor: tensor)
     utils = _torch_utils
     gymutil = module("isaacgym.gymutil")
-    class SubTerrain:
-        def __init__(self, name, width, length, vertical_scale, horizontal_scale):
-            self.width, self.length = width, length
-            self.vertical_scale, self.horizontal_scale = vertical_scale, horizontal_scale
-            self.height_field_raw = np.zeros((width, length), dtype=np.int16)
-    terrain_utils = module("isaacgym.terrain_utils", SubTerrain=SubTerrain)
+    terrain_utils = module("isaacgym.terrain_utils")
     gym = module("isaacgym", gymapi=gymapi, gymtorch=gymtorch, gymutil=gymutil,
                  torch_utils=utils, terrain_utils=terrain_utils)
     imported = {
@@ -98,6 +93,12 @@ def load_native_classes():
     # The module cache is restored when the context exits. Keeping returned
     # class objects is safe: their global namespace holds the imported helpers.
     with patch.dict(sys.modules, imported):
+        # The terrain builders/converter are pure NumPy/SciPy SDK code. Load
+        # the actual module against the temporary Gym imports, not a geometry
+        # substitute, now that PIE uses WMP's native generators.
+        terrain_spec = importlib.util.spec_from_file_location(
+            'isaacgym.terrain_utils', Path(_sdk.origin).parent / 'terrain_utils.py')
+        terrain_spec.loader.exec_module(terrain_utils)
         for name, path in (
                 ("legged_gym.envs.base.base_config", "legged_gym/envs/base/base_config.py"),
                 ("legged_gym.envs.base.legged_robot_config", "legged_gym/envs/base/legged_robot_config.py"),

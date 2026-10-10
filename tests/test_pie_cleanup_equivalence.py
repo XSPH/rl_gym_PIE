@@ -17,7 +17,7 @@ from test_pie_observation_and_push import sensor
 BASELINE = json.loads((Path(__file__).parent / 'fixtures/pie_before_cleanup.json').read_text())
 
 
-def test_effective_configuration_preserves_flat_settings_with_restored_vision():
+def test_effective_configuration_restores_parkour_curriculum_with_vision():
     classes = load_native_classes()
     cfg = classes.config()
     expected = deepcopy(BASELINE['configuration'])
@@ -25,11 +25,28 @@ def test_effective_configuration_preserves_flat_settings_with_restored_vision():
     expected['camera']['input_mode'] = 'depth'
     expected['camera']['render_for_debug'] = False
     expected['domain_rand']['randomize_camera'] = True
-    expected['terrain'].update(curriculum=False, kinds=['flat'],
-                               terrain_proportions=[1.0], max_init_terrain_level=0)
+    expected['terrain'].update(
+        curriculum=True, geometry_version=3, num_cols=20,
+        kinds=['flat', 'slope', 'stairs', 'gap', 'step', 'hurdle'],
+        terrain_proportions=[1.0 / 6.0] * 6, max_init_terrain_level=0,
+        min_gap=0.1, max_gap=0.9, gap_floor_units=-1000, gap_channel_width=[1.0, 2.0],
+        min_step=0.15, max_step=0.6, step_length=[0.9, 1.1],
+        min_hurdle=0.05, hurdle_length=[0.2, 0.5], min_stair=0.05,
+        max_stair=0.23, stair_width=[0.30, 0.34], max_slope=0.5, platform_size=3.0,
+        spawn_xy_range=1.0, obstacle_spawn_range=0.5, forward_spawn_x=1.0, obstacle_start_x=3.3,
+        roughness=0.05, roughness_step=0.005, roughness_downsample=0.2, slope_threshold=0.75)
+    expected['commands'].update(
+        curriculum=True, heading_command=True, num_commands=4,
+        initial_limit=0.5, curriculum_threshold=0.8, curriculum_increment=0.2,
+        group_maxima={'flat': [2.0, 1.0], 'omni': [1.5, 1.0],
+                      'stairs': [1.0, 0.8], 'forward': [1.0, 0.0]},
+        heading_gain=2.0, zero_command_probability=0.05, small_command_threshold=0.2)
+    expected['commands']['ranges'].update(
+        lin_vel_x=[-2.0, 2.0], lin_vel_y=[-1.0, 1.0],
+        heading=[-3.141592653589793, 3.141592653589793])
     # Accepted experiment changes in 57bde6f/bd1fd2e, before this refactor.
     expected['init_state']['pos'][2] = .31
-    expected['rewards'].update(only_positive_rewards=False, base_height_target=.3,
+    expected['rewards'].update(only_positive_rewards=False, base_height_target=.3, lin_vel_clip=.1,
                                soft_dof_pos_limit=.9)
     expected['rewards']['scales'].update(torques=-1e-4, base_height=-1.,
                                         hip_default=-.5, feet_regulation=-.05)
@@ -42,12 +59,14 @@ def test_effective_configuration_preserves_flat_settings_with_restored_vision():
     classes.task._validate_config(cfg, SimpleNamespace(dt=.005), 'cuda:0')
 
 
-def test_mesh_heights_origins_and_triangles_match_previous_seed():
+def test_current_mesh_heights_origins_and_triangles_are_reproducible_for_same_seed():
     classes = load_native_classes()
-    terrain = classes.terrain(original_visual_config(classes).terrain, 4096, seed=4)
-    for name, expected in BASELINE['geometry_seed_4'].items():
+    cfg = classes.config()
+    terrain = classes.terrain(cfg.terrain, 4096, seed=4)
+    repeated = classes.terrain(classes.config().terrain, 4096, seed=4)
+    for name in BASELINE['geometry_seed_4']:
         array = np.ascontiguousarray(getattr(terrain, name))
-        assert hashlib.sha256(array.tobytes()).hexdigest() == expected, name
+        np.testing.assert_array_equal(array, getattr(repeated, name), err_msg=name)
 
 
 def test_camera_fk_and_auxiliary_labels_match_previous_values(sensor):
