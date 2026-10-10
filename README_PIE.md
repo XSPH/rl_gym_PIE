@@ -112,6 +112,8 @@ python -s legged_gym/scripts/train.py --task=lite3_pie --headless
 双向组另有 5% 零线速度样本；障碍组初始约 40% 零线速度，仍要求保持朝向。
 内部分组/heading 信息不增加策略观测维数。
 关闭 `commands.curriculum` 时仍按地形分组，直接使用各组最大固定范围。
+分组速度上限、课程评分、各类地形等级和晋级率仅写入 TensorBoard 与
+`metrics.jsonl`，终端保留总体 `terrain_level` 和此前已有的训练日志。
 
 本分支模型续训可直接给出文件：
 

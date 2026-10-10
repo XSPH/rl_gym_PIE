@@ -239,6 +239,10 @@ class PIEOnPolicyRunner(OnPolicyRunner):
                     infotensor = torch.cat((infotensor, ep_info[key].to(self.device)))
                 value = torch.mean(infotensor)
                 self.writer.add_scalar('Episode/' + key, value, locs['it'])
+                # Keep detailed curriculum metrics in TensorBoard without
+                # expanding the existing console layout.
+                if key == 'terrain_promotion_rate' or key.startswith(('cmd_', 'terrain_level_')):
+                    continue
                 ep_string += f"""{f'Mean episode {key}:':>{pad}} {value:.4f}\n"""
         mean_std = self.alg.actor_critic.std.mean()
         fps = int(self.num_steps_per_env * self.env.num_envs / (locs['collection_time'] + locs['learn_time']))

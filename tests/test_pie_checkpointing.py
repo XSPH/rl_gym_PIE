@@ -170,9 +170,24 @@ def test_checkpoint_activation_mismatch_is_rejected_before_loading_weights(tmp_p
         resumed.load(checkpoint)
 
 
-def test_original_logs_include_native_rewards_and_pie_metrics_once(tmp_path, capsys):
+def test_original_logs_include_native_rewards_and_pie_metrics_once(tmp_path, capsys, monkeypatch):
     from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
     learner = runner(tmp_path)
+    curriculum_metrics = {
+        'terrain_level': 1.,
+        'terrain_promotion_rate': .1,
+        **{'cmd_' + group + '_' + field: .5
+           for group in ('flat', 'omni', 'stairs', 'forward')
+           for field in ('x', 'y', 'score')},
+        **{'terrain_level_' + kind: .25
+           for kind in ('flat', 'slope', 'stairs', 'gap', 'step', 'hurdle')},
+    }
+    original_step = learner.env.step
+    def step_with_curriculum(actions):
+        obs, critic, rewards, dones, infos = original_step(actions)
+        infos['episode'].update(curriculum_metrics)
+        return obs, critic, rewards, dones, infos
+    monkeypatch.setattr(learner.env, 'step', step_with_curriculum)
     learner.learn(1)
     output = capsys.readouterr().out
     for label in ("Learning iteration", "Value function loss:", "Surrogate loss:",
@@ -180,8 +195,13 @@ def test_original_logs_include_native_rewards_and_pie_metrics_once(tmp_path, cap
                   "Mean episode rew_collision:", "Velocity estimation loss:",
                   "Foot clearance loss:", "Height map reconstruction loss:",
                   "Successor reconstruction loss:", "VAE KL loss:",
-                  "Policy KL divergence:", "Episode resets:", "Total timesteps:"):
+                  "Policy KL divergence:", "Episode resets:", "Total timesteps:",
+                  "Total loss:", "Gradient norm before clipping:", "Learning rate:",
+                  "Mean episode terrain_level:"):
         assert output.count(label) == 1, label
+    for key in curriculum_metrics:
+        if key != 'terrain_level':
+            assert 'Mean episode ' + key + ':' not in output
     for label in ("Mean step reward:", "Mean terrain level:", "Min terrain level:",
                   "Max terrain level:", "Depth frame pool (MiB):", "Equivalent dense depth (MiB):",
                   "CNN feature reuse fraction:", "Unique depth frames:", "CNN encoded stacks:",
@@ -200,6 +220,9 @@ def test_original_logs_include_native_rewards_and_pie_metrics_once(tmp_path, cap
     assert events.Scalars("Episode/rew_collision")[0].value == pytest.approx(-.2)
     assert events.Scalars("PIE/velocity_loss")[0].value >= 0
     recorded = json.loads((tmp_path / 'metrics.jsonl').read_text())
+    for key, value in curriculum_metrics.items():
+        assert recorded['episode_rewards'][key] == pytest.approx(value)
+        assert events.Scalars('Episode/' + key)[0].value == pytest.approx(value)
     for key, tag in (('terrain_level', 'Episode/terrain_level'),
                      ('mean_reward', 'Train/mean_step_reward'),
                      ('depth_pool_mib', 'PIE/depth_pool_mib'),
