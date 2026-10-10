@@ -247,8 +247,8 @@ def restore_playback_config(env_cfg, checkpoint, show_depth=False):
     if "seed" in environment and not hasattr(cfg, "seed"):
         cfg.seed = environment["seed"]
     _restore_fields(cfg, environment)
-    # Existing v4 models predate these fields; never inherit this branch's
-    # blind default when playing a model trained with real depth.
+    # Existing v4 models predate this field and used real depth. Playback
+    # follows the saved input mode independently of current training defaults.
     cfg.camera.input_mode = depth_input_mode(environment.get('camera', {}))
     # Rendering is a playback diagnostic selected by CLI, not a policy input.
     cfg.camera.render_for_debug = bool(show_depth)

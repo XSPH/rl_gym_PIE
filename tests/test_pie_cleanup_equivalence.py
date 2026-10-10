@@ -17,14 +17,14 @@ from test_pie_observation_and_push import sensor
 BASELINE = json.loads((Path(__file__).parent / 'fixtures/pie_before_cleanup.json').read_text())
 
 
-def test_effective_configuration_preserves_current_blind_flat_experiment():
+def test_effective_configuration_preserves_flat_settings_with_restored_vision():
     classes = load_native_classes()
     cfg = classes.config()
     expected = deepcopy(BASELINE['configuration'])
     expected['control'].update(stiffness={'joint': 20.0}, damping={'joint': 0.5})
-    expected['camera']['input_mode'] = 'zero'
+    expected['camera']['input_mode'] = 'depth'
     expected['camera']['render_for_debug'] = False
-    expected['domain_rand']['randomize_camera'] = False
+    expected['domain_rand']['randomize_camera'] = True
     expected['terrain'].update(curriculum=False, kinds=['flat'],
                                terrain_proportions=[1.0], max_init_terrain_level=0)
     # Accepted experiment changes in 57bde6f/bd1fd2e, before this refactor.

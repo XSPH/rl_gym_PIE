@@ -74,6 +74,9 @@ docs/_build/
 # Keep local project documentation out of commits.
 /docs/
 
+# Remote file-sync backups.
+/.sync_4090/
+
 # PyBuilder
 .pybuilder/
 target/

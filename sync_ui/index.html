@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="api-token" content="__SYNC_TOKEN__">
+  <title>4090 Sync · 同步工作台</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="/" aria-label="4090 Sync 首页"><span class="brand-mark">↗</span><span>4090<span class="brand-sub">SYNC WORKSPACE</span></span></a>
+    <div class="nav-label">工作空间</div>
+    <nav aria-label="主导航">
+      <button class="nav-item active" data-view="workspace"><span>▧</span>同步工作台</button>
+      <button class="nav-item" data-view="history"><span>◷</span>运行记录</button>
+      <button class="nav-item" data-view="guide"><span>ⓘ</span>使用说明</button>
+    </nav>
+    <div class="sidebar-bottom"><span class="dot"></span>本机服务<span class="local-label">LOCAL ONLY</span></div>
+  </aside>
+
+  <main>
+    <header class="topbar"><div>工作空间 <span>/</span> <span id="breadcrumb">同步工作台</span></div><span class="service-badge"><span class="dot"></span>本地运行</span></header>
+    <section class="view" id="workspace-view">
+      <div class="page-heading"><div><div class="eyebrow">LOCAL → REMOTE</div><h1>把修改，送到 4090。</h1><p>直接同步本地工作区，包含未提交代码和新文件。</p></div><span class="target-chip">RTX <strong>4090</strong></span></div>
+      <div class="route-card">
+        <div class="route-end"><span class="route-icon">⌘</span><div><span class="small-label">SOURCE</span><strong>本地工作区</strong><span id="source-summary" class="path">正在读取项目…</span></div></div>
+        <div class="route-arrow"><span>─────→</span><small>SSH / RSYNC</small></div>
+        <div class="route-end destination"><span class="route-icon">▤</span><div><span class="small-label">DESTINATION</span><strong id="host-summary">asuka@192.168.1.121</strong><span id="remote-summary" class="path">/home/asuka/rl_gym_PIE_native</span></div></div>
+      </div>
+      <div class="work-grid">
+        <section class="panel settings-panel">
+          <div class="panel-title"><h2>连接设置</h2><span class="pill" id="connection-state">尚未检测</span></div>
+          <form id="settings-form">
+            <label for="host">SSH 地址</label><input id="host" name="host" required autocomplete="off" placeholder="asuka@192.168.1.121">
+            <label for="remote-dir">远端项目目录</label><input id="remote-dir" name="remote_dir" required autocomplete="off" placeholder="/home/asuka/rl_gym_PIE_native">
+            <details class="advanced"><summary>本地目录与 SSH 端口 <span>⌄</span></summary><label for="source">本地项目目录</label><input id="source" name="source" required autocomplete="off"><label for="ssh-port">SSH 端口</label><input id="ssh-port" name="port" type="number" min="1" max="65535" value="22" required></details>
+            <div class="protection"><span>✓</span><div><strong>覆盖前自动备份</strong><p>日志、模型、环境和 docs 会保留。远端多余文件也会保留。</p></div></div>
+            <div class="actions"><button type="button" id="preview-button" class="button secondary">预览变化 <span>↗</span></button><button type="button" id="sync-button" class="button primary">开始同步 <span>→</span></button></div>
+            <p class="form-note">无需 GitHub · 通过 SSH 免密连接</p>
+          </form>
+        </section>
+        <section class="panel results-panel">
+          <div class="panel-title"><h2>文件变化</h2><span class="small-label" id="result-mode">PREVIEW</span></div>
+          <div class="stats"><div><strong id="changed-count">—</strong><span>变化文件</span></div><div><strong id="added-count">—</strong><span>新增</span></div><div><strong id="modified-count">—</strong><span>修改 / 属性</span></div><div><strong id="candidate-count">—</strong><span>候选文件</span></div></div>
+          <div class="run-state" id="run-state" role="status" aria-live="polite"><span class="state-icon" id="state-icon">◎</span><div><strong id="state-title">准备好同步</strong><p id="state-description">点击「预览变化」，检查将要更新的文件。</p></div></div>
+          <div class="file-list" id="file-list"><div class="empty-state"><span>▱</span><strong>先看变化，再开始同步</strong><p>预览会连接 4090 并比较文件内容，<br>不会修改远端文件。</p></div></div>
+          <div class="backup-note hidden" id="backup-note"><span>✓ 备份目录</span><code id="backup-path"></code></div>
+        </section>
+      </div>
+      <section class="panel log-panel"><div class="panel-title"><h2><span class="terminal-mark">›_</span>执行日志</h2><button class="text-button" id="copy-log">复制日志</button></div><pre id="log-output" tabindex="0">等待任务开始…</pre></section>
+      <footer><span><span class="dot muted"></span>源码同步完成后，下次启动或续训会使用新代码。</span><span>PIE · NATIVE WORKSPACE</span></footer>
+    </section>
+
+    <section class="view hidden" id="history-view"><div class="page-heading"><div><div class="eyebrow">ACTIVITY</div><h1>运行记录</h1><p>保留本次网页服务运行期间的最近 20 条记录。</p></div><button class="button secondary compact" id="refresh-history">刷新记录 ↻</button></div><section class="panel history-panel" id="history-list"><div class="empty-state"><span>◷</span><strong>还没有运行记录</strong><p>完成一次预览或同步后，会在这里显示。</p></div></section></section>
+    <section class="view hidden" id="guide-view"><div class="page-heading"><div><div class="eyebrow">QUICK START</div><h1>让同步更简单。</h1><p>修改本地代码，预览变化，再送到训练机器。</p></div></div><div class="guide-grid"><section class="panel guide-card"><span class="step">01</span><h2>确认连接</h2><p>填写 SSH 地址和 4090 上已存在的项目目录。第一次使用时，可在终端执行 <code>ssh asuka@192.168.1.121</code>，确认免密连接正常。</p></section><section class="panel guide-card"><span class="step">02</span><h2>预览文件变化</h2><p>预览会比较两边的文件内容。受 Git 跟踪的代码，以及未被忽略的新文件都会参与比较，包含尚未提交的修改。若本地分支有新提交，预览日志会显示待导入提交数。</p></section><section class="panel guide-card"><span class="step">03</span><h2>执行同步</h2><p>点击「开始同步」写入文件。被覆盖的远端版本自动保存在 <code>.sync_4090/backups/时间/</code>，完成后校验文件内容。</p></section></div><section class="panel guide-notes"><h2>同步范围</h2><p>本地分支的新提交会快进到 4090 的同名分支；未提交改动以工作区文件方式同步。docs、日志、模型、环境和缓存会保留。本地删除的文件不会自动删除远端对应文件。</p><p>若两端分支不同、远端有未提交修改，或远端包含本地没有的提交，同步会停止以保护远端状态。同步不会推送 GitHub。正在运行的训练需要重新启动或续训，才会加载新代码。</p></section></section>
+  </main>
+  <div class="toast hidden" id="toast" role="alert"></div>
+</body>
+</html>

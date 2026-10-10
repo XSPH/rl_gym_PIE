@@ -76,7 +76,7 @@ class Lite3PIECfg(LeggedRobotCfg):
         randomize_base_mass = True
         added_mass_range = [-1.0, 2.0]
         randomize_pie = True
-        randomize_camera = False
+        randomize_camera = True
         com_shift = 0.05
         gain_factor = [0.9, 1.1]
         motor_factor = [0.9, 1.1]
@@ -86,8 +86,8 @@ class Lite3PIECfg(LeggedRobotCfg):
         camera_hfov_degrees = [86.0, 88.0]
 
     class camera:
-        # Render real depth for diagnostics; zero only the encoded policy input.
-        input_mode = 'zero'  # 'depth' or 'zero'
+        # Render and encode real depth for the policy; 'zero' selects the blind ablation.
+        input_mode = 'depth'  # 'depth' or 'zero'
         render_for_debug = False  # play --show_depth enables real captures in zero mode.
         height = 60
         width = 80
@@ -160,7 +160,7 @@ class Lite3PIECfgPPO(LeggedRobotCfgPPO):
     class runner(LeggedRobotCfgPPO.runner):
         policy_class_name = 'PIEActorCritic'
         algorithm_class_name = 'PIEPPO'
-        experiment_name = 'lite3_pie_blind_flat'
+        experiment_name = 'lite3_pie'
         resume = False
         num_steps_per_env = 24
         max_iterations = 15000

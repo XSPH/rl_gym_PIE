@@ -86,7 +86,12 @@ Each optimizer step gets a new cache. Non-reentrant CNN activation checkpointing
 is retained. There is no image quantization, frozen rollout-feature replacement,
 or gradient accumulation.
 
-The blind-flat experiment uses `camera.input_mode='zero'`: the task directly
+The task defaults to `camera.input_mode='depth'`: Warp captures real depth,
+encodes it, and passes it through the latency queue and two-frame history to
+the CNN. Camera pose/FOV randomization is enabled during training and disabled
+for playback. Rendering in depth mode does not require the debug flag.
+
+The optional blind-flat ablation uses `camera.input_mode='zero'`: the task directly
 supplies a reusable zero image to the history/latency buffers. Training skips
 Warp camera initialization, rendering, and encoding. Playback `--show_depth`
 sets `camera.render_for_debug=True` to capture real depth for display while

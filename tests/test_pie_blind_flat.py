@@ -54,16 +54,16 @@ def assert_blind_inputs(task):
     return obs
 
 
-def test_blind_flat_defaults_keep_training_scale_and_all_flat_geometry():
+def test_visual_flat_defaults_keep_training_scale_and_all_flat_geometry():
     classes = load_native_classes()
     cfg, training = classes.config(), classes.train_config()
-    assert cfg.camera.input_mode == 'zero' and not cfg.domain_rand.randomize_camera
+    assert cfg.camera.input_mode == 'depth' and cfg.domain_rand.randomize_camera
     assert not cfg.camera.render_for_debug
     assert cfg.camera.noise_std == cfg.camera.salt_pepper_probability == 0
     assert cfg.domain_rand.randomize_pie and cfg.noise.add_noise
     assert cfg.domain_rand.randomize_friction and cfg.domain_rand.randomize_base_mass
     assert cfg.domain_rand.push_robots
-    assert training.runner.experiment_name == 'lite3_pie_blind_flat'
+    assert training.runner.experiment_name == 'lite3_pie'
     assert not training.runner.resume
     assert training.algorithm.estimation_weight == training.algorithm.kl_weight == 1.0
     assert (cfg.env.num_envs, training.runner.num_steps_per_env,

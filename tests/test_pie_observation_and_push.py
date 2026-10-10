@@ -17,6 +17,7 @@ def sensor():
     task.cfg = classes.config()
     task.cfg.camera.input_mode = 'depth'
     task.cfg.domain_rand.randomize_pie = False
+    task.cfg.domain_rand.randomize_camera = False  # Deterministic sensor/FK references.
     task.cfg.camera.height = task.cfg.camera.width = 8
     task.cfg.terrain.curriculum = False
     task.sim_params = NS(dt=.005)

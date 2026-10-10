@@ -1,14 +1,16 @@
-# Lite3 PIE：平地盲狗实验分支
+# Lite3 PIE：平地视觉训练
 
-分支：`experiment/pie-blind-flat`，从 `025907a` 创建。本分支以 Unitree RL Gym 和随项目保存的
-rsl_rl **v1.0.2** 实现 PIE，在全平地上从第 0 轮随机初始化训练，策略深度恒为全零，
-名义 PD 为 20/0.5。CNN、Transformer、GRU、全部辅助头/损失与 Critic 特权观测保留。
-奖励、命令和非视觉随机化沿用起点配置；视觉随机化关闭。仅加载 version-4 模型，
-续训必须匹配视觉模式。实验改动和 CPU 验证见 [盲狗实验记录](docs/pie_blind_flat.md)。
+当前分支：`refactor/pie-rsl-native-style`。本分支以 Unitree RL Gym 和随项目保存的
+rsl_rl **v1.0.2** 实现 PIE，在全平地上从第 0 轮随机初始化训练，默认恢复 Warp 深度渲染
+和真实视觉输入，名义 PD 为 20/0.5。CNN、Transformer、GRU、全部辅助头/损失与
+Critic 特权观测保留。相机安装位置、俯角和 FOV 随机化启用，深度噪声仍为 0。
+平地、奖励、命令和非视觉随机化保留当前设置。仅加载 version-4 模型，续训必须匹配
+视觉模式。恢复改动见 [视觉管线恢复记录](docs/pie_visual_restore_2026-10-10.md)，
+历史盲狗实验见 [盲狗实验记录](docs/pie_blind_flat.md)。
 网络参数来源见 [PIE_NETWORK.md](PIE_NETWORK.md)，改动与验证边界见
 [训练流程记录](docs/native_training_refactor.md)与 [模块收拢记录](docs/pie_module_cleanup.md)。
 原训练分支的 GitHub 部署和真实 GPU 短测试见 [4090 验证记录](docs/native_4090_validation_2026-10-04.md)。
-这些历史结果不作为盲狗实验的 GPU 验证证据。本次只做本地开发和 CPU 检查。
+这些历史结果不作为本次恢复的 GPU 验证证据。本次只做本地开发和 CPU 检查。
 
 ## 专用环境
 
@@ -30,6 +32,46 @@ python -s -m pip install --no-deps --no-build-isolation -e ./rsl_rl -e .
 当前依赖为 Python 3.8、PyTorch 2.4.1、Warp 1.6.2；安装要求的
 rsl_rl 版本见 [宇树原版说明](doc/setup_zh.md#23-安装-rsl_rl)。
 
+## 直接同步到 4090
+
+图形界面可直接启动，会自动打开本地网页：
+
+```bash
+./sync_4090_web.py
+```
+
+默认地址为 `http://127.0.0.1:8765`。网页提供连接设置、预览/同步按钮、文件变化列表、
+实时日志、备份路径和运行记录。修改连接设置会保存在当前浏览器；运行记录在本次
+网页服务运行期间保留，最多 20 条。同一时间执行一个任务，页面刷新可恢复最近结果。
+关闭服务按 `Ctrl+C`；端口被占用时用 `--port 8766`，只启动服务用 `--no-browser`。
+前后端均随仓库提供，服务只监听本机，无需安装前端框架或额外 Python 包。
+
+在本地项目目录运行，不需要 Conda，也不需要先提交或推送 GitHub：
+
+```bash
+./sync_4090.py --dry-run   # 先预览
+./sync_4090.py             # 正式同步
+```
+
+默认连接 `asuka@192.168.1.121`，目标目录 `/home/asuka/rl_gym_PIE_native`。
+也可以从其他目录用脚本的绝对路径运行；本地源目录默认是脚本所在的仓库。
+换地址或目录时：
+
+```bash
+./sync_4090.py --host asuka@10.70.205.234 --remote-dir /home/asuka/rl_gym_PIE_native
+```
+
+需要本地 Git、OpenSSH、rsync，远端需要 Git、rsync 和现有项目目录；SSH 使用免密登录。
+同步包含受 Git 跟踪的文件及未被忽略的新文件，跳过 `docs/`、`.git/`、日志、模型、
+环境和缓存。使用内容校验识别变化，覆盖前的远端文件保存在
+`.sync_4090/backups/<时间>/`，同步后再次校验文件内容。
+本地当前分支领先 4090 时，工具会先打包并导入这些提交，再同步工作区文件；
+因此作者、提交说明和提交历史会一并出现在 4090 的当前分支。两端分支必须同名，
+远端工作区须干净且历史须为本地历史的祖先；遇到远端独有提交或历史分叉时会停止，
+不会覆盖远端提交。未提交的本地修改仍会直接同步，所以远端 `git status` 可能显示修改。
+此过程只在本地与 4090 之间传输，不会推送 GitHub。
+它不会自动删除远端文件，本地删除的文件需自行在远端处理；不会重启正在运行的训练。
+
 ## 正式训练
 
 从项目根目录执行：
@@ -42,7 +84,7 @@ python -s legged_gym/scripts/train.py --task=lite3_pie --headless
 默认 4096 个环境，24 步 rollout，5 epochs，4 minibatches，学习率
 1e-3、adaptive、目标 KL 0.01，初始 action std 为 1.0。
 训练总目标 15000 轮，每完成 500 轮保存一次，默认输出到
-`logs/lite3_pie_blind_flat/<时间>_<run_name>/`，默认 `resume=False`。
+`logs/lite3_pie/<时间>_<run_name>/`，默认 `resume=False`。
 
 本分支模型续训可直接给出文件：
 
@@ -53,8 +95,9 @@ python -s legged_gym/scripts/train.py --task=lite3_pie --headless \
 
 恢复模型、Adam、学习率和累计轮数，仿真回合与 GRU 记忆重新开始。
 加载第 500 轮后，默认再训练 14500 轮。version 1/2/3 与未知格式均明确拒绝。
-仅使用该实验的 `zero` checkpoint 续训；旧视觉 checkpoint 缺少 `camera.input_mode`
-时解释为 `depth`，在本分支默认配置下会报视觉模式不匹配，权重和优化器都不会加载。
+默认使用 `depth` checkpoint 续训；旧视觉 checkpoint 缺少 `camera.input_mode`
+时解释为 `depth`。`zero` checkpoint 与默认视觉配置不匹配，权重和优化器都不会加载；
+如需继续盲狗实验，先将 `camera.input_mode` 设为 `zero`，并使用独立实验日志目录。
 version 4 保存统一环境配置、有效网络和训练配置、优化器、当前学习率、累计轮数、
 时间/步数及 PyTorch/CUDA 随机状态；仿真器、相机队列和 GRU 不作为状态快照保存。
 
@@ -114,12 +157,14 @@ rsl_rl/rsl_rl/
 
 配置直接修改 `Lite3PIECfg` 的嵌套类。URDF 唯一入口为 `asset.file`。
 `domain_rand.randomize_pie` 控制 COM、增益、电机、动作延迟；
-独立的 `domain_rand.randomize_camera` 控制相机安装位置、俯角和 FOV，默认关闭。
-`camera.input_mode` 支持 `zero`（本分支默认）和 `depth`，非法值初始化时报错。
+独立的 `domain_rand.randomize_camera` 控制相机安装位置、俯角和 FOV，训练默认启用，回放关闭。
+`camera.input_mode` 支持 `depth`（当前默认）和 `zero`，非法值初始化时报错。
+`depth` 模式自动初始化 Warp 相机、渲染真实深度并编码，经过延迟队列和两帧历史
+送入策略 CNN；不需要启用 `render_for_debug` 或 `--show_depth`。
 `zero` 模式默认跳过 Warp 相机初始化、渲染和编码，直接使用全零图像，
 历史、固定延迟和逻辑帧编号保持原节奏。CNN 和全部辅助损失仍正常计算。
-play 的 `--show_depth` 设置 `camera.render_for_debug=True`，启用真实相机画面；
-策略输入继续为零。此诊断开关不参与视觉模式匹配。
+play 的 `--show_depth` 设置 `camera.render_for_debug=True`；在 `zero` 模式下也会
+启用真实相机画面，但该模式的策略输入继续为零。此诊断开关不参与视觉模式匹配。
 原版摩擦、附加质量和推扰由各自开关控制。正式规模仍为 4096/24/5/4/15000/500。
 
 `train.py → task_registry → PIEOnPolicyRunner.learn → PIEPPO.act → LeggedRobot.step`
@@ -186,10 +231,11 @@ Warp 和 PhysX 共用最终网格。盲狗实验没有沟壑、高台、障碍�
 
 ```bash
 PYTHONNOUSERSITE=1 PYTHONDONTWRITEBYTECODE=1 CUDA_VISIBLE_DEVICES='' \
-  MPLCONFIGDIR=/tmp/pie-blind-flat-mpl \
-  python -s -m pytest -q tests --basetemp=/tmp/pie-blind-flat-tests
+  MPLCONFIGDIR=/tmp/pie-visual-mpl \
+  python -s -m pytest -q tests --basetemp=/tmp/pie-visual-tests
 ```
 
-渲染跳过优化及验证见 [不渲染相机的零输入路径](docs/pie_blind_flat_no_render.md)。
+历史盲狗模式的渲染跳过优化见 [不渲染相机的零输入路径](docs/pie_blind_flat_no_render.md)，
+该优化仅在显式选择 `zero` 模式时使用。
 本次实现检查没有启动 Isaac Gym 仿真或 GPU 训练；CPU 检查只确认数据流、网络更新与恢复逻辑。
 基础运动是否学会和单轮耗时降低多少，需要后续训练和回放判断。
