@@ -421,20 +421,14 @@ class PIEOnPolicyRunner(OnPolicyRunner):
             ("Foot clearance loss:", "foot_clearance"), ("Height map reconstruction loss:", "heightmap"),
             ("Successor reconstruction loss:", "successor"), ("VAE KL loss:", "kl"),
             ("Policy KL divergence:", "policy_kl"), ("Gradient norm before clipping:", "grad_norm"),
-            ("Learning rate:", "learning_rate"), ("Mean step reward:", "mean_reward"),
-            ("Mean terrain level:", "terrain_level"), ("Depth frame pool (MiB):", "depth_pool_mib"),
-            ("Equivalent dense depth (MiB):", "depth_dense_mib"), ("CNN feature reuse fraction:", "cnn_reuse_fraction"),
+            ("Learning rate:", "learning_rate"),
         ]
         result = ''.join("{:>35} {:.6f}\n".format(label, metrics[key])
                          for label, key in fields if key in metrics)
-        for label, key in (("Min terrain level:", "terrain_level_min"), ("Max terrain level:", "terrain_level_max"),
-                           ("Unique depth frames:", "depth_unique_frames"), ("CNN encoded stacks:", "cnn_encoded_stacks"),
-                           ("Equivalent dense CNN stacks:", "cnn_dense_stacks")):
-            if key in metrics:
-                result += "{:>35} {}\n".format(label, int(metrics[key]))
-        for name, count in metrics.get("reset_counts", {}).items():
-            result += "{:>35} {}\n".format("Reset {}:".format(name), count)
-        result += "{:>35} {}\n".format("Transitions this iteration:", self.num_steps_per_env * self.env.num_envs)
+        counts = metrics.get("reset_counts", {})
+        if counts:
+            result += "{:>35} {} failures, {} timeouts\n".format(
+                "Episode resets:", counts.get("failures", 0), counts.get("timeouts", 0))
         return result
 
     def _after_iteration(self, locs, metrics):

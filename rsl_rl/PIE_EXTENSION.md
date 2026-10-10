@@ -101,9 +101,11 @@ gradient is zero, while its bias and deeper network parameters can train.
 
 ## Logging, checkpoints, and validation
 
-The PIE runner preserves the original console/TensorBoard reward logging and appends all five auxiliary losses, policy KL, gradient norm, learning rate,
-step reward, terrain levels, reset counts, and visual-memory/reuse statistics.
-The same iteration metrics are written to `metrics.jsonl`.
+The PIE runner preserves the original console reward logging and appends total
+loss, all five auxiliary losses, policy KL, gradient norm, learning rate, and
+one line summarizing failed resets and timeouts. Step reward, terrain levels,
+detailed reset reasons, and visual-memory/reuse statistics are omitted from
+the console. All iteration metrics remain in TensorBoard and `metrics.jsonl`.
 
 PIE iteration numbers count completed updates. Periodic `model_500.pt`,
 `model_1000.pt`, etc. are saved every 500 updates, and `checkpoint.pt` is saved at

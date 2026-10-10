@@ -180,8 +180,17 @@ def test_original_logs_include_native_rewards_and_pie_metrics_once(tmp_path, cap
                   "Mean episode rew_collision:", "Velocity estimation loss:",
                   "Foot clearance loss:", "Height map reconstruction loss:",
                   "Successor reconstruction loss:", "VAE KL loss:",
-                  "Policy KL divergence:", "Mean terrain level:", "Total timesteps:"):
+                  "Policy KL divergence:", "Episode resets:", "Total timesteps:"):
         assert output.count(label) == 1, label
+    for label in ("Mean step reward:", "Mean terrain level:", "Min terrain level:",
+                  "Max terrain level:", "Depth frame pool (MiB):", "Equivalent dense depth (MiB):",
+                  "CNN feature reuse fraction:", "Unique depth frames:", "CNN encoded stacks:",
+                  "Equivalent dense CNN stacks:", "Reset failures:", "Reset timeouts:",
+                  "Reset base_contact:", "Reset tilted:", "Reset nonfinite:", "Reset timeout:",
+                  "Transitions this iteration:"):
+        assert label not in output, label
+    counts = learner.last_metrics['reset_counts']
+    assert '{} failures, {} timeouts'.format(counts['failures'], counts['timeouts']) in output
     assert output.index("Mean episode rew_collision:") < output.index("Velocity estimation loss:")
     learner.writer.close()
     events = EventAccumulator(str(tmp_path)).Reload()
@@ -190,6 +199,15 @@ def test_original_logs_include_native_rewards_and_pie_metrics_once(tmp_path, cap
     assert events.Scalars("Episode/rew_tracking_lin_vel")[0].value == pytest.approx(.7)
     assert events.Scalars("Episode/rew_collision")[0].value == pytest.approx(-.2)
     assert events.Scalars("PIE/velocity_loss")[0].value >= 0
+    recorded = json.loads((tmp_path / 'metrics.jsonl').read_text())
+    for key, tag in (('terrain_level', 'Episode/terrain_level'),
+                     ('mean_reward', 'Train/mean_step_reward'),
+                     ('depth_pool_mib', 'PIE/depth_pool_mib'),
+                     ('cnn_reuse_fraction', 'PIE/cnn_reuse_fraction')):
+        assert recorded[key] == learner.last_metrics[key]
+        assert events.Scalars(tag)[0].value == pytest.approx(recorded[key])
+    assert recorded['reset_counts'] == counts
+    assert events.Scalars('Reset/failures')[0].value == counts['failures']
     assert learner.tot_timesteps == 9
 
 

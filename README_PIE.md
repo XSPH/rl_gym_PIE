@@ -223,9 +223,10 @@ Warp 和 PhysX 共用最终网格。盲狗实验没有沟壑、高台、障碍�
 ## 日志与 CPU 检查
 
 保留原版终端布局、episode 奖励、吞吐与时间，追加 PIE 辅助损失、策略 KL、
-梯度范数、学习率、实时地形等级、重置原因、图像帧池和 CNN 复用统计。
-同时写 TensorBoard 与 `metrics.jsonl`。`Mean reward` 是完成回合累计奖励，
-单步平均奖励单独记录；VAE KL 与策略 KL 分开记录。
+梯度范数、学习率和一行失败/超时重置汇总。
+终端省略单步平均奖励、地形等级、细分重置原因、图像帧池和 CNN 复用统计，
+完整指标仍写 TensorBoard 与 `metrics.jsonl`。`Mean reward` 是完成回合累计奖励；
+VAE KL 与策略 KL 分开记录。
 
 仅 CPU 检查，不启动 Isaac Gym 仿真：
 
